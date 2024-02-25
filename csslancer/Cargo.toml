@@ -1,0 +1,35 @@
+[package]
+name = "csslancer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csslancer_macro = {path="./../csslancer_macro"}
+anyhow = "1.0.79"
+async-trait = "0.1.77"
+bpaf = "0.9.6"
+chrono = "0.4.31"
+ego-tree = "0.6.2"
+futures = "0.3.30"
+itertools = "0.12.0"
+log = "0.4.20"
+lsp-server = "0.7.6"
+lsp-types = "0.94.0"
+regex = "1.10.3"
+serde = "1.0.195"
+serde_json = "1.0.111"
+structured-logger = "1.0.3"
+thiserror = "1.0.56"
+tokio = { version = "1.34.0", features = ["io-std", "rt-multi-thread", "macros", "tracing"] }
+tower-lsp = "0.20.0"
+tracing = "0.1.40"
+tracing-subscriber = { version="0.3.18", default-features=false, features = [
+    "std",
+    "registry",
+    "fmt"
+]}
+lsp-textdocument = "0.3.2"
+console-subscriber = "0.2.0"
+tracing-chrome = "0.7.1"

@@ -1,0 +1,617 @@
+#[test]
+fn stylesheet() {
+    
+    assert_parse_node!("@charset "demo" ;", stylesheet_fall);
+    assert_parse_node!("body { margin: 0px; padding: 3em, 6em; }", stylesheet_fall);
+    assert_parse_node!("--> <!--", stylesheet_fall);
+    assert_parse_node!("", stylesheet_fall);
+    assert_parse_node!("<!-- --> @import "string"; <!-- -->", stylesheet_fall);
+    assert_parse_node!("@media asdsa { } <!-- --> <!-- -->", stylesheet_fall);
+    assert_parse_node!("@media screen, projection { }", stylesheet_fall);
+    assert_parse_node!("@media screen and (max-width: 400px) {  @-ms-viewport { width: 320px; }}", stylesheet_fall);
+    assert_parse_node!("@-ms-viewport { width: 320px; height: 768px; }", stylesheet_fall);
+    assert_parse_node!("#boo, far {} \n.far boo {}", stylesheet_fall);
+    assert_parse_node!("@-moz-keyframes darkWordHighlight { from { background-color: inherit; } to { background-color: rgba(83, 83, 83, 0.7); } }", stylesheet_fall);
+    assert_parse_node!("@page { margin: 2.5cm; }", stylesheet_fall);
+    assert_parse_node!("@font-face { font-family: "Example Font"; }", stylesheet_fall);
+    assert_parse_node!("@namespace "http://www.w3.org/1999/xhtml";", stylesheet_fall);
+    assert_parse_node!("@namespace pref url(http://test);", stylesheet_fall);
+    assert_parse_node!("@-moz-document url(http://test), url-prefix(http://www.w3.org/Style/) { body { color: purple; background: yellow; } }", stylesheet_fall);
+    assert_parse_node!("E E[foo] E[foo="bar"] E[foo~="bar"] E[foo^="bar"] E[foo$="bar"] E[foo*="bar"] E[foo|="en"] {}", stylesheet_fall);
+    assert_parse_node!("input[type=\"submit\"] {}", stylesheet_fall);
+    assert_parse_node!("E:root E:nth-child(n) E:nth-last-child(n) E:nth-of-type(n) E:nth-last-of-type(n) E:first-child E:last-child {}", stylesheet_fall);
+    assert_parse_node!("E:first-of-type E:last-of-type E:only-child E:only-of-type E:empty E:link E:visited E:active E:hover E:focus E:target E:lang(fr) E:enabled E:disabled E:checked {}", stylesheet_fall);
+    assert_parse_node!("E::first-line E::first-letter E::before E::after {}", stylesheet_fall);
+    assert_parse_node!("E.warning E#myid E:not(s) {}", stylesheet_fall);
+    assert_parse_error!("@namespace;", stylesheet_fall, ParseError::URIExpected);
+    assert_parse_error!("@namespace url(http://test)", stylesheet_fall, ParseError::SemiColonExpected);
+    assert_parse_error!("@charset;", stylesheet_fall, ParseError::IdentifierExpected);
+    assert_parse_error!("@charset \'utf8\'", stylesheet_fall, ParseError::SemiColonExpected);
+}
+
+#[test]
+fn stylesheet - graceful handling of unknown rules() {
+    
+    assert_parse_node!("@unknown-rule;", stylesheet_fall);
+    assert_parse_node!("@unknown-rule 'foo';", stylesheet_fall);
+    assert_parse_node!("@unknown-rule (foo) {}", stylesheet_fall);
+    assert_parse_node!("@unknown-rule (foo) { .bar {} }", stylesheet_fall);
+    assert_parse_node!("@mskeyframes darkWordHighlight { from { background-color: inherit; } to { background-color: rgba(83, 83, 83, 0.7); } }", stylesheet_fall);
+    assert_parse_node!("foo { @unknown-rule; }", stylesheet_fall);
+
+    assert_parse_error!("@unknown-rule (;", stylesheet_fall, ParseError::RightParenthesisExpected);
+    assert_parse_error!("@unknown-rule [foo", stylesheet_fall, ParseError::RightSquareBracketExpected);
+    assert_parse_error!("@unknown-rule { [foo }", stylesheet_fall, ParseError::RightSquareBracketExpected);
+    assert_parse_error!("@unknown-rule (foo) {", stylesheet_fall, ParseError::RightCurlyExpected);
+    assert_parse_error!("@unknown-rule (foo) { .bar {}", stylesheet_fall, ParseError::RightCurlyExpected);
+}
+
+#[test]
+fn stylesheet - unknown rules node ends properly. Microsoft/vscode#53159() {
+    
+    let node = assert_parse_node!("@unknown-rule (foo) {} .foo {}", stylesheet_fall);
+
+    let unknownAtRule = node.getChild(0)!;
+    assert.equal(unknownAtRule.type, nodes.NodeType.UnknownAtRule);
+    assert.equal(unknownAtRule.offset, 0);
+    assert.equal(node.getChild(0)!.length, 13);
+
+    // microsoft/vscode-css-languageservice#237
+    assert_parse_node!(".foo { @apply p-4 bg-neutral-50; min-height: var(--space-14); }", stylesheet_fall);
+
+}
+
+#[test]
+fn stylesheet /panic/() {
+    
+    assert_parse_error!("#boo, far } \n.far boo {}", stylesheet_fall, ParseError::LeftCurlyExpected);
+    assert_parse_error!("#boo, far { far: 43px; \n.far boo {}", stylesheet_fall, ParseError::RightCurlyExpected);
+    assert_parse_error!("- @import "foo";", stylesheet_fall, ParseError::RuleOrSelectorExpected);
+}
+
+#[test]
+fn @font-face() {
+    
+    assert_parse_node!("@font-face {}", font_face);
+    assert_parse_node!("@font-face { src: url(http://test) }", font_face);
+    assert_parse_node!("@font-face { font-style: normal; font-stretch: normal; }", font_face);
+    assert_parse_node!("@font-face { unicode-range: U+0021-007F }", font_face);
+    assert_parse_error!("@font-face { font-style: normal font-stretch: normal; }", font_face, ParseError::SemiColonExpected);
+}
+
+#[test]
+fn @keyframe selector() {
+    
+    assert_parse_node!("from {}", keframe_selector);
+    assert_parse_node!("to {}", keframe_selector);
+    assert_parse_node!("0% {}", keframe_selector);
+    assert_parse_node!("10% {}", keframe_selector);
+    assert_parse_node!("cover 10% {}", keframe_selector);
+    assert_parse_node!("100000% {}", keframe_selector);
+    assert_parse_node!("from { width: 100% }", keframe_selector);
+    assert_parse_node!("from { width: 100%; to: 10px; }", keframe_selector);
+    assert_parse_node!("from, to { width: 10px; }", keframe_selector);
+    assert_parse_node!("10%, to { width: 10px; }", keframe_selector);
+    assert_parse_node!("from, 20% { width: 10px; }", keframe_selector);
+    assert_parse_node!("10%, 20% { width: 10px; }", keframe_selector);
+    assert_parse_node!("cover 10% {}", keframe_selector);
+    assert_parse_node!("cover 10%, exit 20% {}", keframe_selector);
+    assert_parse_node!("10%, exit 20% {}", keframe_selector);
+    assert_parse_node!("from, exit 20% {}", keframe_selector);
+    assert_parse_node!("cover 10%, to {}", keframe_selector);
+    assert_parse_node!("cover 10%, 20% {}", keframe_selector);
+}
+
+#[test]
+fn @keyframe() {
+    
+    assert_parse_node!("@keyframes name {}", keyframe);
+    assert_parse_node!("@-webkit-keyframes name {}", keyframe);
+    assert_parse_node!("@-o-keyframes name {}", keyframe);
+    assert_parse_node!("@-moz-keyframes name {}", keyframe);
+    assert_parse_node!("@keyframes name { from {} to {}}", keyframe);
+    assert_parse_node!("@keyframes name { from {} 80% {} 100% {}}", keyframe);
+    assert_parse_node!("@keyframes name { from { top: 0px; } 80% { top: 100px; } 100% { top: 50px; }}", keyframe);
+    assert_parse_node!("@keyframes name { from { top: 0px; } 70%, 80% { top: 100px; } 100% { top: 50px; }}", keyframe);
+    assert_parse_node!("@keyframes name { from { top: 0px; left: 1px; right: 2px }}", keyframe);
+    assert_parse_node!("@keyframes name { exit 50% { top: 0px; left: 1px; right: 2px }}", keyframe);
+    assert_parse_error!("@keyframes name { from { top: 0px; left: 1px, right: 2px }}", keyframe, ParseError::SemiColonExpected);
+    assert_parse_error!("@keyframes )", keyframe, ParseError::IdentifierExpected);
+    assert_parse_error!("@keyframes name { { top: 0px; } }", keyframe, ParseError::RightCurlyExpected);
+    assert_parse_error!("@keyframes name { from, #123", keyframe, ParseError::PercentageExpected);
+    assert_parse_error!("@keyframes name { 10% from { top: 0px; } }", keyframe, ParseError::LeftCurlyExpected);
+    assert_parse_error!("@keyframes name { 10% 20% { top: 0px; } }", keyframe, ParseError::LeftCurlyExpected);
+    assert_parse_error!("@keyframes name { from to { top: 0px; } }", keyframe, ParseError::LeftCurlyExpected);
+}
+
+#[test]
+fn @property() {
+    
+    assert_parse_node!("@property --my-color { syntax: '<color>'; inherits: false; initial-value: #c0ffee; }", stylesheet_fall);
+    assert_parse_error!("@property  {  }", stylesheet_fall, ParseError::IdentifierExpected);
+}
+
+#[test]
+fn @container() {
+    
+    assert_parse_node!("@container (width <= 150px) { #inner { background-color: skyblue; }}", stylesheet_fall);
+    assert_parse_node!("@container card (inline-size > 30em) and style(--responsive: true) { }", stylesheet_fall);
+    assert_parse_node!("@container card (inline-size > 30em) { @container style(--responsive: true) {} }", stylesheet_fall);
+}
+
+#[test]
+fn @container query length units() {
+    
+    assert_parse_node!("@container (min-width: 700px) { .card h2 { font-size: max(1.5em, 1.23em + 2cqi); } }", stylesheet_fall);
+}
+
+#[test]
+fn @import() {
+    
+    assert_parse_node!("@import "asdasdsa"", import);
+    assert_parse_node!("@ImPort "asdsadsa"", import);
+    assert_parse_node!("@import "asdasd" dsfsdf", import);
+    assert_parse_node!("@import "foo";", stylesheet_fall);
+    assert_parse_node!("@import url(/css/screen.css) screen, projection;", stylesheet_fall);
+    assert_parse_node!("@import url(\'landscape.css\') screen and (orientation:landscape);", stylesheet_fall);
+    assert_parse_node!("@import url("/inc/Styles/full.css") (min-width: 940px);", stylesheet_fall);
+    assert_parse_node!("@import url(style.css) screen and (min-width:600px);", stylesheet_fall);
+    assert_parse_node!("@import url("./700.css") only screen and (max-width: 700px);", stylesheet_fall);
+
+    assert_parse_node!("@import url("override.css") layer;", stylesheet_fall);
+    assert_parse_node!("@import url("tabs.css") layer(framework.component);", stylesheet_fall);
+
+    assert_parse_node!("@import "mystyle.css" supports(display: flex);", stylesheet_fall);
+
+    assert_parse_node!("@import url("narrow.css") supports(display: flex) handheld and (max-width: 400px);", stylesheet_fall);
+    assert_parse_node!("@import url("fallback-layout.css") supports(not (display: flex));", stylesheet_fall);
+
+
+    assert_parse_error!("@import", stylesheet_fall, ParseError::URIOrStringExpected);
+}
+
+#[test]
+fn @supports() {
+    
+    assert_parse_node!("@supports ( display: flexbox ) { body { display: flexbox } }", supports);
+    assert_parse_node!("@supports not (display: flexbox) { .outline { box-shadow: 2px 2px 2px black; /* unprefixed last */ } }", supports);
+    assert_parse_node!("@supports ( box-shadow: 2px 2px 2px black ) or ( -moz-box-shadow: 2px 2px 2px black ) or ( -webkit-box-shadow: 2px 2px 2px black ) { }", supports);
+    assert_parse_node!("@supports ((transition-property: color) or (animation-name: foo)) and (transform: rotate(10deg)) { }", supports);
+    assert_parse_node!("@supports ((display: flexbox)) { }", supports);
+    assert_parse_node!("@supports (display: flexbox !important) { }", supports);
+    assert_parse_node!("@supports (grid-area: auto) { @media screen and (min-width: 768px) { .me { } } }", supports);
+    assert_parse_node!("@supports (column-width: 1rem) OR (-moz-column-width: 1rem) OR (-webkit-column-width: 1rem) oR (-x-column-width: 1rem) { }", supports); // #49288
+    assert_parse_node!("@supports not (--validValue: , 0 ) {}", supports); // #82178
+    assert_parse_error!("@supports (transition-property: color) or (animation-name: foo) and (transform: rotate(10deg)) { }", supports, ParseError::LeftCurlyExpected);
+    assert_parse_error!("@supports display: flexbox { }", supports, ParseError::LeftParenthesisExpected);
+}
+
+#[test]
+fn @media() {
+    
+    assert_parse_node!("@media asdsa { }", media);
+    assert_parse_node!("@meDia sadd{}  ", media);
+    assert_parse_node!("@media somename, othername2 { }", media);
+    assert_parse_node!("@media only screen and (max-width:850px) { }", media);
+    assert_parse_node!("@media only screen and (max-width:850px) { }", media);
+    assert_parse_node!("@media all and (min-width:500px) { }", media);
+    assert_parse_node!("@media screen and (color), projection and (color) { }", media);
+    assert_parse_node!("@media not screen and (device-aspect-ratio: 16/9) { }", media);
+    assert_parse_node!("@media print and (min-resolution: 300dpi) { }", media);
+    assert_parse_node!("@media print and (min-resolution: 118dpcm) { }", media);
+    assert_parse_node!("@media print { @page { margin: 10% } blockquote, pre { page-break-inside: avoid } }", media);
+    assert_parse_node!("@media print { body:before { } }", media);
+    assert_parse_node!("@media not (-moz-os-version: windows-win7) { }", media);
+    assert_parse_node!("@media not (not (-moz-os-version: windows-win7)) { }", media);
+    assert_parse_node!("@media (height > 600px) { }", media);
+    assert_parse_node!("@media (height < 600px) { }", media);
+    assert_parse_node!("@media (height <= 600px) { }", media);
+    assert_parse_node!("@media (400px <= width <= 700px) { }", media);
+    assert_parse_node!("@media (400px >= width >= 700px) { }", media);
+    assert_parse_node!("@media screen and (750px <= width < 900px) { }", media);
+    assert_parse_error!("@media somename othername2 { }", media, ParseError::LeftCurlyExpected);
+    assert_parse_error!("@media not, screen { }", media, ParseError::mediaQueryExpected);
+    assert_parse_error!("@media not screen and foo { }", media, ParseError::LeftParenthesisExpected);
+    assert_parse_error!("@media not screen and () { }", media, ParseError::IdentifierExpected);
+    assert_parse_error!("@media not screen and (color:) { }", media, ParseError::termExpected);
+    assert_parse_error!("@media not screen and (color:#234567 { }", media, ParseError::RightParenthesisExpected);
+}
+
+#[test]
+fn media_list() {
+    
+    assert_parse_node!("somename", media_query_list);
+    assert_parse_node!("somename, othername", media_query_list);
+    assert_parse_node!("not all and (monochrome)", media_query_list);
+}
+
+#[test]
+fn medium() {
+    
+    assert_parse_node!("somename", medium);
+    assert_parse_node!("-asdas", medium);
+    assert_parse_node!("-asda34s", medium);
+}
+
+#[test]
+fn @page() {
+    
+    assert_parse_node!("@page : name{ }", page);
+    assert_parse_node!("@page :left, :right { }", page);
+    assert_parse_node!("@page : name{ some : "asdas" }", page);
+    assert_parse_node!("@page : name{ some : "asdas" !important }", page);
+    assert_parse_node!("@page : name{ some : "asdas" !important; some : "asdas" !important }", page);
+    assert_parse_node!("@page rotated { size : landscape }", page);
+    assert_parse_node!("@page :left { margin-left: 4cm; margin-right: 3cm; }", page);
+    assert_parse_node!("@page {  @top-right-corner { content: url(foo.png); border: solid green; } }", page);
+    assert_parse_node!("@page {  @top-left-corner { content: " "; border: solid green; } @bottom-right-corner { content: counter(page); border: solid green; } }", page);
+    assert_parse_error!("@page {  @top-left-corner foo { content: " "; border: solid green; } }", page, ParseError::LeftCurlyExpected);
+    // assert_parse_error!("@page {  @XY foo { content: " "; border: solid green; } }", page, ParseError::UnknownAtRule);
+    assert_parse_error!("@page :left { margin-left: 4cm margin-right: 3cm; }", page, ParseError::SemiColonExpected);
+    assert_parse_error!("@page : { }", page, ParseError::IdentifierExpected);
+    assert_parse_error!("@page :left, { }", page, ParseError::IdentifierExpected);
+}
+
+#[test]
+fn @layer() {
+    
+    assert_parse_node!("@layer utilities { .padding-sm { padding: .5rem; } }", layer);
+    assert_parse_node!("@layer utilities;", layer);
+    assert_parse_node!("@layer theme, layout, utilities;", layer);
+    assert_parse_node!("@layer utilities { p { margin-block: 1rem; } }", layer);
+    assert_parse_node!("@layer framework { @layer layout { } }", layer);
+    assert_parse_node!("@layer framework.layout { @keyframes slide-left {} }", layer);
+
+    assert_parse_node!("@media (min-width: 30em) { @layer layout { } }", stylesheet_fall);
+
+    assert_parse_error!("@layer theme layout {  }", layer, ParseError::SemiColonExpected);
+    assert_parse_error!("@layer theme, layout {  }", layer, ParseError::SemiColonExpected);
+    assert_parse_error!("@layer framework .layout {  }", layer, ParseError::SemiColonExpected);
+    assert_parse_error!("@layer framework. layout {  }", layer, ParseError::IdentifierExpected);
+}
+
+#[test]
+fn operator() {
+    
+    assert_parse_node!("/", operator);
+    assert_parse_node!("*", operator);
+    assert_parse_node!("+", operator);
+    assert_parse_node!("-", operator);
+}
+
+#[test]
+fn combinator() {
+    
+    assert_parse_node!("+", combinator);
+    assert_parse_node!("+  ", combinator);
+    assert_parse_node!(">  ", combinator);
+    assert_parse_node!(">", combinator);
+    assert_parse_node!(">>>", combinator);
+    assert_parse_node!("/deep/", combinator);
+    assert_parse_node!(":host >>> .data-table { width: 100%; }", stylesheet_fall);
+    assert_parse_error!(":host >> .data-table { width: 100%; }", stylesheet_fall, ParseError::LeftCurlyExpected);
+}
+
+#[test]
+fn unary_operator() {
+    
+    assert_parse_node!("-", unary_operator);
+    assert_parse_node!("+", unary_operator);
+}
+
+#[test]
+fn property() {
+    
+    assert_parse_node!("asdsa", property);
+    assert_parse_node!("asdsa334", property);
+
+    assert_parse_node!("--color", property);
+    assert_parse_node!("--primary-font", property);
+    assert_parse_node!("-color", property);
+    assert_parse_node!("somevar", property);
+    assert_parse_node!("some--let", property);
+    assert_parse_node!("somevar--", property);
+}
+
+#[test]
+fn ruleset() {
+    
+    assert_parse_node!("name{ }", ruleset);
+    assert_parse_node!("	name\n{ some : "asdas" }", ruleset);
+    assert_parse_node!("		name{ some : "asdas" !important }", ruleset);
+    assert_parse_node!("name{ \n some : "asdas" !important; some : "asdas" }", ruleset);
+    assert_parse_node!("* {}", ruleset);
+    assert_parse_node!(".far{}", ruleset);
+    assert_parse_node!("boo {}", ruleset);
+    assert_parse_node!(".far #boo {}", ruleset);
+    assert_parse_node!("boo { prop: value }", ruleset);
+    assert_parse_node!("boo { prop: value; }", ruleset);
+    assert_parse_node!("boo { prop: value; prop: value }", ruleset);
+    assert_parse_node!("boo { prop: value; prop: value; }", ruleset);
+    assert_parse_node!("boo {--minimal: }", ruleset);
+    assert_parse_node!("boo {--minimal: ;}", ruleset);
+    assert_parse_node!("boo {--normal-text: red yellow green}", ruleset);
+    assert_parse_node!("boo {--normal-text: red yellow green;}", ruleset);
+    assert_parse_node!("boo {--important: red !important;}", ruleset);
+    assert_parse_node!("boo {--nested: {color: green;}}", ruleset);
+    assert_parse_node!("boo {--parens: this()is()ok()}", ruleset);
+    assert_parse_node!("boo {--squares: this[]is[]ok[]too[]}", ruleset);
+    assert_parse_node!("boo {--combined: ([{{[]()()}[]{}}])()}", ruleset);
+    assert_parse_node!("boo {--weird-inside-delims: {color: green;;;;;;!important;;}}", ruleset);
+    assert_parse_node!("boo {--validValue: , 0 0}", ruleset);
+    assert_parse_node!("boo {--validValue: , 0 0;}", ruleset);
+    assert_parse_error!("boo, { }", ruleset, ParseError::SelectorExpected);
+}
+
+#[test]
+fn ruleset /Panic/() {
+    
+    //	assert_parse_node!("boo { : value }", ruleset);
+    assert_parse_error!("boo { prop: ; }", ruleset, ParseError::PropertyValueExpected);
+    assert_parse_error!("boo { prop }", ruleset, ParseError::ColonExpected);
+    assert_parse_error!("boo { prop: ; far: 12em; }", ruleset, ParseError::PropertyValueExpected);
+    //	assert_parse_node!("boo { prop: ; 1ar: 12em; }", ruleset);
+
+    assert_parse_error!("boo { --too-minimal:}", ruleset, ParseError::PropertyValueExpected);
+    assert_parse_error!("boo { --unterminated: ", ruleset, ParseError::RightCurlyExpected);
+    assert_parse_error!("boo { --double-important: red !important !important;}", ruleset, ParseError::SemiColonExpected);
+    assert_parse_error!("boo {--unbalanced-curlys: {{color: green;}}", ruleset, ParseError::RightCurlyExpected);
+    assert_parse_error!("boo {--unbalanced-parens: not(()cool;}", ruleset, ParseError::LeftCurlyExpected);
+    assert_parse_error!("boo {--unbalanced-parens: not)()(cool;}", ruleset, ParseError::LeftParenthesisExpected);
+    assert_parse_error!("boo {--unbalanced-brackets: not[[]valid;}", ruleset, ParseError::LeftCurlyExpected);
+    assert_parse_error!("boo {--unbalanced-brackets: not][][valid;}", ruleset, ParseError::LeftSquareBracketExpected);
+}
+
+#[test]
+fn nested ruleset() {
+    let parser = new Parser();
+    assert_parse_node!(".foo { color: red; input { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; :focus { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; .bar { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; &:hover { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; + .bar { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; foo:hover { color: blue }; }", ruleset);
+    assert_parse_node!(".foo { color: red; @media screen { color: blue }; }", ruleset);
+
+    // Top level curly braces are allowed in declaration values if they are for a custom property.
+    assert_parse_node!(".foo { --foo: {}; }", ruleset);
+    // Top level curly braces are not allowed in declaration values.
+    assert_parse_error!(".foo { foo: {}; }", ruleset, ParseError::PropertyValueExpected);
+}
+
+#[test]
+fn nested ruleset 2() {
+    let parser = new Parser();
+    assert_parse_node!(".foo { .parent & { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; & > .bar, > .baz { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { & .bar & .baz & .qux { color: blue; } }", ruleset);
+    assert_parse_node!(".foo { color: red; :not(&) { color: blue; }; + .bar + & { color: green; } }", ruleset);
+    assert_parse_node!(".foo { color: red; & { color: blue; } && { color: green; } }", ruleset);
+    assert_parse_node!(".foo { & :is(.bar, &.baz) { color: red; } }", ruleset);
+    assert_parse_node!("figure { > figcaption { background: hsl(0 0% 0% / 50%); > p {  font-size: .9rem; } } }", ruleset);
+    assert_parse_node!("@layer base { html { & body { min-block-size: 100%; } } }", stylesheet_fall);
+}
+
+#[test]
+fn selector() {
+    
+    assert_parse_node!("asdsa", selector);
+    assert_parse_node!("asdsa + asdas", selector);
+    assert_parse_node!("asdsa + asdas + name", selector);
+    assert_parse_node!("asdsa + asdas + name", selector);
+    assert_parse_node!("name #id#anotherid", selector);
+    assert_parse_node!("name.far .boo", selector);
+    assert_parse_node!("name .name .zweitername", selector);
+    assert_parse_node!("*", selector);
+    assert_parse_node!("#id", selector);
+    assert_parse_node!("far.boo", selector);
+    assert_parse_node!("::slotted(div)::after", selector); // 35076
+}
+
+#[test]
+fn simple selector() {
+    
+    assert_parse_node!("name", simple_selector);
+    assert_parse_node!("#id#anotherid", simple_selector);
+    assert_parse_node!("name.far", simple_selector);
+    assert_parse_node!("name.erstername.zweitername", simple_selector);
+}
+
+#[test]
+fn element name() {
+    
+    assert_parse_node!("name", element_name);
+    assert_parse_node!("*", element_name);
+    assert_parse_node!("foo|h1", element_name);
+    assert_parse_node!("foo|*", element_name);
+    assert_parse_node!("|h1", element_name);
+    assert_parse_node!("*|h1", element_name);
+}
+
+#[test]
+fn attrib() {
+    
+    assert_parse_node!("[name]", attrib);
+    assert_parse_node!("[name = name2]", attrib);
+    assert_parse_node!("[name ~= name3]", attrib);
+    assert_parse_node!("[name~=name3]", attrib);
+    assert_parse_node!("[name |= name3]", attrib);
+    assert_parse_node!("[name |= "this is a striiiing"]", attrib);
+    assert_parse_node!("[href*="insensitive" i]", attrib);
+    assert_parse_node!("[href*="sensitive" S]", attrib);
+
+    // Single namespace
+    assert_parse_node!("[namespace|name]", attrib);
+    assert_parse_node!("[name-space|name = name2]", attrib);
+    assert_parse_node!("[name_space|name ~= name3]", attrib);
+    assert_parse_node!("[name0spae|name~=name3]", attrib);
+    assert_parse_node!("[NameSpace|name |= "this is a striiiing"]", attrib);
+    assert_parse_node!("[name\\*space|name |= name3]", attrib);
+    assert_parse_node!("[*|name]", attrib);
+}
+
+#[test]
+fn pseudo() {
+    
+    assert_parse_node!(":some", pseudo);
+    assert_parse_node!(":some(thing)", pseudo);
+    assert_parse_node!(":nth-child(12)", pseudo);
+    assert_parse_node!(":nth-child(1n)", pseudo);
+    assert_parse_node!(":nth-child(-n+3)", pseudo);
+    assert_parse_node!(":nth-child(2n+1)", pseudo);
+    assert_parse_node!(":nth-child(2n+1 of .foo)", pseudo);
+    assert_parse_node!(":nth-child(2n+1 of .foo > bar, :not(*) ~ [other="value"])", pseudo);
+    assert_parse_node!(":lang(it)", pseudo);
+    assert_parse_node!(":not(.class)", pseudo);
+    assert_parse_node!(":not(:disabled)", pseudo);
+    assert_parse_node!(":not(#foo)", pseudo);
+    assert_parse_node!("::slotted(*)", pseudo); // #35076
+    assert_parse_node!("::slotted(div:hover)", pseudo); // #35076
+    assert_parse_node!(":global(.output ::selection)", pseudo); // #49010
+    assert_parse_node!(":matches(:hover, :focus)", pseudo); // #49010
+    assert_parse_node!(":host([foo=bar][bar=foo])", pseudo); // #49589
+    assert_parse_node!(":has(> .test)", pseudo); // #250
+    assert_parse_node!(":has(~ .test)", pseudo); // #250
+    assert_parse_node!(":has(+ .test)", pseudo); // #250
+    assert_parse_node!(":has(~ div .test)", pseudo); // #250
+    assert_parse_error!("::", pseudo, ParseError::IdentifierExpected);
+    assert_parse_error!(":: foo", pseudo, ParseError::IdentifierExpected);
+    assert_parse_error!(":nth-child(1n of)", pseudo, ParseError::SelectorExpected);
+}
+
+#[test]
+fn declaration() {
+    
+    assert_parse_node!("name : "this is a string" !important", declaration);
+    assert_parse_node!("name : "this is a string"", declaration);
+    assert_parse_node!("property:12", declaration);
+    assert_parse_node!("-vendor-property: 12", declaration);
+    assert_parse_node!("font-size: 12px", declaration);
+    assert_parse_node!("color : #888 /4", declaration);
+    assert_parse_node!("filter : progid:DXImageTransform.Microsoft.Shadow(color=#000000,direction=45)", declaration);
+    assert_parse_node!("filter : progid: DXImageTransform.\nMicrosoft.\nDropShadow(\noffx=2, offy=1, color=#000000)", declaration);
+    assert_parse_node!("font-size: 12px", declaration);
+    assert_parse_node!("*background: #f00 /* IE 7 and below */", declaration);
+    assert_parse_node!("_background: #f60 /* IE 6 and below */", declaration);
+    assert_parse_node!("background-image: linear-gradient(to right, silver, white 50px, white calc(100% - 50px), silver)", declaration);
+    assert_parse_node!("grid-template-columns: [first nav-start] 150px [main-start] 1fr [last]", declaration);
+    assert_parse_node!("grid-template-columns: repeat(4, 10px [col-start] 250px [col-end]) 10px", declaration);
+    assert_parse_node!("grid-template-columns: [a] auto [b] minmax(min-content, 1fr) [b c d] repeat(2, [e] 40px)", declaration);
+    assert_parse_node!("grid-template: [foo] 10px / [bar] 10px", declaration);
+    assert_parse_node!("grid-template: 'left1 footer footer' 1fr [end] / [ini] 1fr [info-start] 2fr 1fr [end]", declaration);
+    assert_parse_node!("content: "("counter(foo) ")"", declaration);
+    assert_parse_node!("content: 'Hello\\0A''world'", declaration);
+}
+
+#[test]
+fn term() {
+    
+    assert_parse_node!(""asdasd"", term);
+    assert_parse_node!("name", term);
+    assert_parse_node!("#FFFFFF", term);
+    assert_parse_node!("url("this is a url")", term);
+    assert_parse_node!("+324", term);
+    assert_parse_node!("-45", term);
+    assert_parse_node!("+45", term);
+    assert_parse_node!("-45%", term);
+    assert_parse_node!("-45mm", term);
+    assert_parse_node!("-45em", term);
+    assert_parse_node!(""asdsa"", term);
+    assert_parse_node!("faa", term);
+    assert_parse_node!("url("this is a striiiiing")", term);
+    assert_parse_node!("#FFFFFF", term);
+    assert_parse_node!("name(asd)", term);
+    assert_parse_node!("calc(50% + 20px)", term);
+    assert_parse_node!("calc(50% + (100%/3 - 2*1em - 2*1px))", term);
+    assertNoNode('%(\'repetitions: %S file: %S\', 1 + 2, "directory/file.less")", term); // less syntax
+    assertNoNode('~"ms:alwaysHasItsOwnSyntax.For.Stuff()"", term); // less syntax
+    assert_parse_node!("U+002?-0199", term);
+    assertNoNode('U+002?-01??", term);
+    assertNoNode('U+00?0;", term);
+    assertNoNode('U+0XFF;", term);
+}
+
+
+#[test]
+fn function() {
+    
+    assert_parse_node!("name( "bla" )", function);
+    assert_parse_node!("name( name )", function);
+    assert_parse_node!("name( -500mm )", function);
+    assert_parse_node!("\u060frf()", function);
+    assert_parse_node!("über()", function);
+
+    assertNoNode('über ()", function);
+    assertNoNode('%()", function);
+    assertNoNode('% ()", function);
+
+    assertfunction('let(--color)", function);
+    assertfunction('let(--color, somevalue)", function);
+    assertfunction('let(--variable1, --variable2)", function);
+    assertfunction('let(--variable1, let(--variable2))", function);
+    assertfunction('fun(value1, value2)", function);
+    assertfunction('fun(value1,)", function);
+}
+
+#[test]
+fn test token prio() {
+    
+    assert_parse_node!("!important", prio);
+    assert_parse_node!("!/*demo*/important", prio);
+    assert_parse_node!("! /*demo*/ important", prio);
+    assert_parse_node!("! /*dem o*/  important", prio);
+}
+
+#[test]
+fn hexcolor() {
+    
+    assert_parse_node!("#FFF", hex_color);
+    assert_parse_node!("#FFFF", hex_color);
+    assert_parse_node!("#FFFFFF", hex_color);
+    assert_parse_node!("#FFFFFFFF", hex_color);
+}
+
+#[test]
+fn test class() {
+    
+    assert_parse_node!(".faa", class);
+    assert_parse_node!("faa", element_name);
+    assert_parse_node!("*", element_name);
+    assert_parse_node!(".faa42", class);
+}
+
+
+#[test]
+fn prio() {
+    
+    assert_parse_node!("!important", prio);
+}
+
+#[test]
+fn expr() {
+    
+    assert_parse_node!("45,5px", expr);
+    assert_parse_node!(" 45 , 5px ", expr);
+    assert_parse_node!("5/6", expr);
+    assert_parse_node!("36mm, -webkit-calc(100%-10px)", expr);
+}
+
+#[test]
+fn url() {
+    
+    assert_parse_node!("url(//yourdomain/yourpath.png)", uri_literal);
+    assert_parse_node!("url(\'http://msft.com\')", uri_literal);
+    assert_parse_node!("url("http://msft.com")", uri_literal);
+    assert_parse_node!("url( "http://msft.com")", uri_literal);
+    assert_parse_node!("url(\t"http://msft.com")", uri_literal);
+    assert_parse_node!("url(\n"http://msft.com")", uri_literal);
+    assert_parse_node!("url("http://msft.com"\n)", uri_literal);
+    assert_parse_node!("url("")", uri_literal);
+    assert_parse_node!("uRL("")", uri_literal);
+    assert_parse_node!("URL("")", uri_literal);
+    assert_parse_node!("url(http://msft.com)", uri_literal);
+    assert_parse_node!("url()", uri_literal);
+    assert_parse_node!("url(\'http://msft.com\n)", uri_literal);
+    assert_parse_error!("url("http://msft.com"", uri_literal, ParseError::RightParenthesisExpected);
+    assert_parse_error!("url(http://msft.com\')", uri_literal, ParseError::RightParenthesisExpected);
+}

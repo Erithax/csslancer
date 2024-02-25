@@ -1,0 +1,120 @@
+{
+	"name": "csslancer",
+	"displayName": "CssLancer",
+	"description": "CSS and dialects Language Services",
+	"publisher": "erithax",
+	"homepage": "https://github.com/csslancer",
+	"keywords": [
+		"css",
+		"scss",
+		"lsp"
+	],
+	"categories": [
+		"Formatters",
+		"Programming Languages"
+	],
+	"version": "0.0.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/erithax"
+	},
+	"bugs": {
+		"url": "https://github.com/erithax"
+	},
+	"license": "AGPL-3.0-only",
+	"icon": "icon.png",
+	"engines": {
+		"vscode": "^1.74.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onLanguage:css",
+		"onLanguage:csslancer"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "csslancer",
+				"aliases": [
+					"CSS",
+					"Css"
+				],
+				"extensions": [
+					".csslancer"
+				],
+				"configuration": "./language-configuration.json",
+				"icon": {
+					"light": "icon.png",
+					"dark": "icon.png"
+				}
+			}
+		],
+		"grammars": [
+			{
+				"language": "css",
+				"scopeName": "source.css",
+				"path": "./syntaxes/css.tmLanguage.json"
+			}
+		],
+		"configuration": [
+			{
+				"id": "csslancer",
+				"title": "CssLancer",
+				"properties": {
+					"CssLancer.serverPath": {
+						"type": [
+							"string",
+							"null"
+						],
+						"default": null,
+						"description": "Set a custom path to a CssLancer binary.",
+						"scope": "window"
+					},
+					"CssLancer.customArgs": {
+						"type": "array",
+						"description": "Additional arguments that should be passed to the CssLancer LS binary.",
+						"default": [],
+						"scope": "window"
+					},
+					"CssLancer.checkForUpdates": {
+						"type": "boolean",
+						"description": "Check for updates to the CssLancer LS binary.",
+						"default": true,
+						"scope": "window"
+					},
+					"CssLancer.alwaysUsedRuleNames": {
+						"type": "array",
+						"description": "Rule names that should not be included in the unused rule names diagnostic.",
+						"default": [],
+						"scope": "window"
+					}
+				}
+			}
+		],
+		"commands": [
+			{
+				"category": "Css",
+				"command": "CssLancer.restartServer",
+				"title": "Restart Server"
+			}
+		]
+	},
+	"scripts": {
+		"_build-base": "tsc -b",
+		"compile": "tsc -b",
+		"package": "vsce package --githubBranch main --out CssLancer.vsix",
+		"publish:vsce": "vsce publish --githubBranch main",
+		"publish:ovsx": "ovsx publish -p $OPENVSX_PAT",
+		"vscode:prepublish": "npm run _build-base -- --minify"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^7.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^18.15.12",
+		"@types/vscode": "^1.74.0",
+		"@vscode/vsce": "^2.20.1",
+		"ovsx": "^0.8.3",
+		"typescript": "^5.1.6"
+	}
+}
