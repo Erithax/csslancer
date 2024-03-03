@@ -1,13 +1,12 @@
-
 pub mod source;
 
 use anyhow::anyhow;
-use std::collections::HashMap;
 use lsp_types::{TextDocumentContentChangeEvent, Url};
+use std::collections::HashMap;
 
-use source::Source;
 use crate::config::PositionEncoding;
 use crate::interop::LspRange;
+use source::Source;
 
 pub struct Workspace {
     pub files: HashMap<Url, Source>,
@@ -88,14 +87,13 @@ impl Workspace {
             }
         }
     }
-
 }
 
 pub type FsResult<T> = Result<T, FsError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum FsError {
-    #[error("expected Typst source file, but found something else")]
+    #[error("expected Csslancer source file, but found something else")]
     NotSource,
     #[error("could not find `{0}` on the local filesystem")]
     NotFoundLocal(std::path::PathBuf),
@@ -110,6 +108,3 @@ pub enum FsError {
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
-
-
-

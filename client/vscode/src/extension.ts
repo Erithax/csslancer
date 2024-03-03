@@ -83,7 +83,7 @@ const pathInConfig = conf.get<string | null>("serverPath");
         return binaryName;
     }
 
-    // validateServer fails at executing cmd `csslancer.exe` even when it's in PATH correctly
+    // TODO: validateServer fails at executing cmd `csslancer.exe` even when it's in PATH correctly
     return binaryName
 
     throw new Error(

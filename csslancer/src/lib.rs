@@ -1,20 +1,22 @@
+#![allow(clippy::needless_return)]
+#![allow(clippy::new_without_default)]
+
+mod config;
 mod css_language_service;
 mod css_language_types;
+mod ext;
+pub mod facts;
+mod interop;
 pub mod logging;
 pub mod parser;
 pub mod services;
 pub mod workspace;
-pub mod facts;
-mod config;
-mod interop;
-mod ext;
 
 use anyhow::Result;
 use log::{error, info, warn};
 use lsp_types::{
-    InitializeParams,
-    ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, WorkDoneProgressOptions,
+    InitializeParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    WorkDoneProgressOptions,
 };
 
 use lsp_server::Connection;

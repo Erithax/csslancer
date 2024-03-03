@@ -33,3 +33,5 @@ tracing-subscriber = { version="0.3.18", default-features=false, features = [
 lsp-textdocument = "0.3.2"
 console-subscriber = "0.2.0"
 tracing-chrome = "0.7.1"
+strum_macros = "0.26.1"
+strum = {version = "0.26.1", features = ["derive"] }

@@ -60,7 +60,7 @@ function getServer(conf) {
     if (binaryValidation.valid) {
         return binaryName;
     }
-    // validateServer fails at executing cmd `csslancer.exe` even when it's in PATH correctly
+    // TODO: validateServer fails at executing cmd `csslancer.exe` even when it's in PATH correctly
     return binaryName;
     throw new Error(`Could not find a valid csslancer binary.\nBundled: ${bundledValidation.message}\nIn PATH: ${binaryValidation.message}`);
 }

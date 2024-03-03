@@ -1,9 +1,5 @@
 use ego_tree::{NodeId, NodeRef, Tree};
-use std::{
-    any::Any,
-    collections::{HashMap, VecDeque},
-    fmt::Debug, ops::Range,
-};
+use std::{any::Any, collections::HashMap, fmt::Debug, ops::Range};
 
 use crate::parser::css_node_types::*;
 
@@ -13,7 +9,7 @@ pub trait ITextProvider: std::fmt::Debug {
     fn get_text(&self, offset: usize, length: usize) -> &str;
 }
 
-trait DataT: Any + std::fmt::Debug + Sync + Send {
+pub trait DataT: Any + std::fmt::Debug + Sync + Send {
     fn noop(&self)
     where
         Self: Sized;
@@ -23,7 +19,7 @@ trait DataT: Any + std::fmt::Debug + Sync + Send {
 pub struct CssNode {
     pub offset: usize,
     pub length: usize,
-    pub data: HashMap<String, Box<dyn DataT>>,
+    data: HashMap<String, Box<dyn DataT>>,
     //pub text_provider: Option<Box<dyn ITextProvider + 'a>>,
     pub issues: Vec<Marker>,
     pub node_type: CssNodeType,
@@ -32,12 +28,12 @@ pub struct CssNode {
 impl CssNode {
     pub fn new(offset: usize, length: usize, node_type: CssNodeType) -> Self {
         return CssNode {
-            offset: offset,
-            length: length,
+            offset,
+            length,
             data: HashMap::new(),
             //text_provider: None,
             issues: Vec::new(),
-            node_type: node_type,
+            node_type,
         };
     }
 
@@ -82,7 +78,7 @@ impl CssNode {
     }
 
     pub fn is_erroneous(&self) -> bool {
-        return self.issues.len() > 0;
+        return !self.issues.is_empty();
     }
 }
 
@@ -161,54 +157,83 @@ impl IVisitor for ParseErrorCollector {
 // ================
 // NodeRef<CssNode>
 // ================
-pub fn get_node_at_offset<'a>(node: NodeRef<'a, CssNode>, offset: usize) -> Option<NodeRef<'a, CssNode>> {
-    let node_val = node.value();
-    let mut candidate: Option<(NodeId, usize)> = None;
-    if offset < node_val.offset || offset > node_val.end() {
-        return None;
-    }
 
-    // Find the shortest node at the position
-    todo!();
-    // accept_mut(node, move |node: NodeRef<CssNode>| {
-    //     if node_val.offset == usize::MAX && node_val.length == usize::MAX {
-    //         return true;
-    //     }
-    //     if node_val.offset <= offset && node_val.end() >= offset {
-    //         match candidate {
-    //             None => candidate = Some((node.id(), node.value().length)),
-    //             Some(cand) => {
-    //                 if node_val.length <= cand.1 {
-    //                     candidate = Some((node.id(), node.value().length));
-    //                 }
-    //             }
-    //         }
-    //         return true;
-    //     }
-    //     return false;
-    // });
-    if let Some(cand) = candidate {
-        return node.tree().get(cand.0);
-    }
-    return None;
+pub trait ChildByOffsetFinder<'a> {
+    fn find_first_child_before_offset(self, offset: usize) -> Option<NodeRef<'a, CssNode>>;
+    fn find_child_at_offset(self, offset: usize, go_deep: bool) -> Option<NodeRef<'a, CssNode>>;
 }
 
-pub fn get_node_path<'a>(node: NodeRef<'a, CssNode>, offset: usize) -> Vec<&'a CssNode> {
-    let mut candidate = get_node_at_offset(node, offset);
-    let mut path: VecDeque<&CssNode> = VecDeque::new();
-    loop {
-        match candidate {
-            None => break,
-            Some(cand) => {
-                path.push_front(cand.value());
-                candidate = cand.parent();
-            }
+impl<'a> ChildByOffsetFinder<'a> for NodeRef<'a, CssNode> {
+    fn find_first_child_before_offset(self, offset: usize) -> Option<NodeRef<'a, CssNode>> {
+        if !self.has_children() {
+            return None;
         }
+        return self.children().rev().find(|ch| ch.value().offset <= offset);
     }
-    return path.into();
+
+    fn find_child_at_offset(self, offset: usize, go_deep: bool) -> Option<NodeRef<'a, CssNode>> {
+        let current = self.find_first_child_before_offset(offset)?;
+        if current.value().end() < offset {
+            return None;
+        }
+        if !go_deep {
+            return Some(current);
+        }
+        return current.find_child_at_offset(offset, true).or(Some(current));
+    }
 }
 
-pub fn get_parent_declaration<'a>(node: NodeRef<'a, CssNode>) -> Option<&'a CssNode> {
+// pub fn get_node_at_offset<'a>(
+//     node: NodeRef<'a, CssNode>,
+//     offset: usize,
+// ) -> Option<NodeRef<'a, CssNode>> {
+//     let node_val = node.value();
+//     let candidate: Option<(NodeId, usize)> = None;
+//     if offset < node_val.offset || offset > node_val.end() {
+//         return None;
+//     }
+
+//     // Find the shortest node at the position
+//     todo!();
+//     // accept_mut(node, move |node: NodeRef<CssNode>| {
+//     //     if node_val.offset == usize::MAX && node_val.length == usize::MAX {
+//     //         return true;
+//     //     }
+//     //     if node_val.offset <= offset && node_val.end() >= offset {
+//     //         match candidate {
+//     //             None => candidate = Some((node.id(), node.value().length)),
+//     //             Some(cand) => {
+//     //                 if node_val.length <= cand.1 {
+//     //                     candidate = Some((node.id(), node.value().length));
+//     //                 }
+//     //             }
+//     //         }
+//     //         return true;
+//     //     }
+//     //     return false;
+//     // });
+//     if let Some(cand) = candidate {
+//         return node.tree().get(cand.0);
+//     }
+//     return None;
+// }
+
+// pub fn get_node_path<'a>(node: NodeRef<'a, CssNode>, offset: usize) -> Vec<&'a CssNode> {
+//     let mut candidate = get_node_at_offset(node, offset);
+//     let mut path: VecDeque<&CssNode> = VecDeque::new();
+//     loop {
+//         match candidate {
+//             None => break,
+//             Some(cand) => {
+//                 path.push_front(cand.value());
+//                 candidate = cand.parent();
+//             }
+//         }
+//     }
+//     return path.into();
+// }
+
+pub fn get_parent_declaration(node: NodeRef<CssNode>) -> Option<&CssNode> {
     let node_id_dud = node.id();
     let decl = first_ancestor_of_type(
         node,
@@ -262,9 +287,7 @@ where
     }
 }
 
-
-pub fn accept_mut(node: NodeRef<CssNode>, mut visitor_fun: fn(NodeRef<CssNode>) -> bool)
-{
+pub fn accept_mut(node: NodeRef<CssNode>, visitor_fun: fn(NodeRef<CssNode>) -> bool) {
     if visitor_fun(node) {
         for child in node.children() {
             accept_mut(child, visitor_fun);
@@ -284,16 +307,19 @@ pub fn accept_visitor(node: NodeRef<CssNode>, visitor: &mut impl IVisitor) {
     }
 }
 
-pub fn first_child_before_offset<'a, 'b>(
-    node: NodeRef<'b, CssNode>,
+pub fn first_child_before_offset(
+    node: NodeRef<CssNode>,
     offset: usize,
-) -> Option<NodeRef<'b, CssNode>> {
-    if let Some(mut current) = node.children().nth(0) {
+) -> Option<NodeRef<CssNode>> {
+    if let Some(mut current) = node.children().next() {
         let mut i = node.children().count() - 2;
-        while i >= 0 {
+        loop {
             current = node.children().nth(i).unwrap();
             if current.value().offset <= offset {
                 return Some(current);
+            }
+            if i == 0 {
+                break;
             }
             i -= 1;
         }
@@ -302,11 +328,11 @@ pub fn first_child_before_offset<'a, 'b>(
     return None;
 }
 
-pub fn find_child_at_offset<'a, 'b>(
-    node: NodeRef<'b, CssNode>,
+pub fn find_child_at_offset(
+    node: NodeRef<CssNode>,
     offset: usize,
     go_deep: bool,
-) -> Option<NodeRef<'b, CssNode>> {
+) -> Option<NodeRef<CssNode>> {
     let node = first_child_before_offset(node, offset);
     match node {
         None => return None,
@@ -320,61 +346,46 @@ pub fn find_child_at_offset<'a, 'b>(
 }
 
 // self excluded, ignores nodelist parents!
-pub fn get_real_parent<'a, 'b>(node: NodeRef<'b, CssNode>) -> Option<NodeRef<'b, CssNode>> {
+pub fn get_real_parent(node: NodeRef<CssNode>) -> Option<NodeRef<CssNode>> {
     let mut result = node.parent();
-    loop {
-        match result {
-            Some(n) => {
-                if n.value().node_type != CssNodeType::Nodelist {
-                    break;
-                }
-                result = n.parent();
-            }
-            None => break,
+    while let Some(res) = result {
+        if res.value().node_type != CssNodeType::Nodelist {
+            break;
         }
+        result = res.parent();
     }
     return result;
 }
 
 // self excluded
-pub fn first_ancestor_of_type<'a, 'b>(
-    node: NodeRef<'b, CssNode>,
+pub fn first_ancestor_of_type(
+    node: NodeRef<CssNode>,
     node_type: CssNodeType,
-) -> Option<NodeRef<'b, CssNode>> {
+) -> Option<NodeRef<CssNode>> {
     let mut result = node.parent();
-    loop {
-        match result {
-            Some(n) => {
-                if n.value().node_type.same_node_type(&node_type) {
-                    break;
-                }
-                result = n.parent();
-            }
-            None => break,
+    while let Some(res) = result {
+        if res.value().node_type.same_node_type(&node_type) {
+            break;
         }
+        result = res.parent();
     }
     return result;
 }
 
 // self excluded
-pub fn first_ancestor_of_a_type<'a, 'b>(
-    node: NodeRef<'b, CssNode>,
+pub fn first_ancestor_of_a_type(
+    node: NodeRef<CssNode>,
     node_types: Vec<CssNodeType>,
-) -> Option<NodeRef<'b, CssNode>> {
+) -> Option<NodeRef<CssNode>> {
     let mut result = node.parent();
-    loop {
-        match result {
-            Some(n) => {
-                if node_types
-                    .iter()
-                    .any(|nt| nt.same_node_type(&n.value().node_type))
-                {
-                    break;
-                }
-                result = n.parent();
-            }
-            None => break,
+    while let Some(res) = result {
+        if node_types
+            .iter()
+            .any(|nt| nt.same_node_type(&res.value().node_type))
+        {
+            break;
         }
+        result = res.parent();
     }
     return result;
 }
@@ -384,73 +395,79 @@ impl SourceLessCssNodeTree {
     pub fn new(root: CssNode) -> Self {
         return Self(Tree::new(root));
     }
+
+    pub fn get(&self, node_id: NodeId) -> Option<NodeRef<CssNode>> {
+        return self.0.get(node_id);
+    }
+
     pub fn get_text<'a>(&self, node_id: NodeId, source: &'a str) -> &'a str {
         let node = self.0.get(node_id).unwrap();
         let val = node.value();
         let o: usize = val.offset;
-        return &source[o..o+val.length]
+        return &source[o..o + val.length];
     }
 
     pub fn is_attached(&self, node_id: NodeId) -> bool {
         if node_id == self.0.root().id() {
-            return true
+            return true;
         }
         if let Some(p) = self.0.get(node_id).unwrap().parent() {
             return self.is_attached(p.id());
         }
-        return false
+        return false;
     }
 
     pub fn fancy_string(&self) -> String {
-        return Self::fancy_string_internal(self.0.root());
+        return Self::fancy_string_internal(self.0.root(), 0).replace("\n\n", "\n");
     }
 
-    fn fancy_string_internal(node: NodeRef<'_, CssNode>) -> String {
-        let self_str = format!("{:?}\n", node.value().node_type);
-        return self_str + &node.children()
-            .into_iter()
-            .map(|ch| 
-                Self::fancy_string_internal(ch).lines()
-                .map(|l| "\t".to_owned() + &l + "\n")
-                .fold(String::new(), |acc, nex| acc + &nex)
+    fn fancy_string_internal(node: NodeRef<'_, CssNode>, ident: usize) -> String {
+        let ident_s = "    ".repeat(ident);
+        return "\n".to_owned()
+            + &ident_s
+            + &format!(
+                "{:?}[{:?}]({}-{}) {{",
+                node.value().node_type,
+                node.id(),
+                node.value().offset,
+                node.value().length
             )
-            .fold(String::new(), |acc, nex| acc + &nex)
+            + &node
+                .children()
+                .map(|ch| Self::fancy_string_internal(ch, ident + 1))
+                .fold(String::new(), |acc, nex| acc + &nex)
+            + "\n"
+            + &ident_s
+            + "}";
     }
 }
 impl Default for SourceLessCssNodeTree {
     fn default() -> Self {
         return Self(Tree::new(CssNode {
             offset: usize::MAX,
-            length: usize::MAX,
+            length: 0,
             data: HashMap::new(),
             issues: Vec::new(),
             node_type: CssNodeType::ROOT,
-        }))
+        }));
     }
-
 }
 
-pub struct CssNodeTree(pub Tree<CssNode>, pub String);
+pub struct CssNodeTree(pub SourceLessCssNodeTree, pub String);
 impl CssNodeTree {
     pub fn new(tree: SourceLessCssNodeTree, source: String) -> Self {
-        return Self(tree.0, source);
+        return Self(tree, source);
     }
 
-    // fn get_first_ancestral_text_provider(
-    //     &self,
-    //     node_id: NodeId,
-    // ) -> Option<&Box<dyn ITextProvider>> {
-    //     if let Some(node) = self.0.get(node_id) {
-    //         return get_first_ancestral_text_provider(node);
-    //     }
-    //     return None;
-    // }
+    pub fn get(&self, node_id: NodeId) -> Option<NodeRef<CssNode>> {
+        return self.0 .0.get(node_id);
+    }
 
     pub fn get_text(&self, node_id: NodeId) -> &str {
-        let node = self.0.get(node_id).unwrap();
+        let node = self.0 .0.get(node_id).unwrap();
         let val = node.value();
         let o = val.offset;
-        return &self.1[o..o+val.length]
+        return &self.1[o..o + val.length];
     }
 
     pub fn matches(&self, node_id: NodeId, s: &str) -> bool {
@@ -466,83 +483,29 @@ impl CssNodeTree {
     }
 
     pub fn fancy_string(&self) -> String {
-        return Self::fancy_string_internal(self.0.root());
+        return self.0.fancy_string();
     }
 
-    fn fancy_string_internal(node: NodeRef<'_, CssNode>) -> String {
-        let self_str = format!("{:?}\n", node.value().node_type);
-        return self_str + &node.children()
-            .into_iter()
-            .map(|ch| 
-                Self::fancy_string_internal(ch).lines()
-                .map(|l| "    ".to_owned() + &l)
-                .fold(String::new(), |acc, nex| acc + &nex)
-            )
-            .fold(String::new(), |acc, nex| acc + "\n" + &nex)
-    }
-
-    pub fn reparse(&mut self, replace: Range<usize>, with_len: usize) {
+    pub fn reparse(&mut self, _replace: Range<usize>, _with_len: usize) {
+        // TODO: make incremental
         let res = Parser::new_with_text(std::mem::take(&mut self.1)).into_stylesheet();
         self.0 = res.0;
         self.1 = res.1;
     }
-
-    // 	pub fn adopt_child(&mut self, mut child: &mut CssNode, index: Option<usize>) {
-    // 		// remove child from previous parent
-    // 		if let Some(mut par) = child.parent {
-    // 			par.children.retain(|n: &Box<CssNode>| **n != *child);
-    // 		}
-
-    // 		child.parent = Some(Box::new(*self));
-    // 		match index {
-    // 			None => self.children.push(Box::new(*child)),
-    // 			Some(i) => self.children[i] = Box::new(*child),
-    // 		}
-    // 	}
-
-    // 	pub fn attach_parent(&mut self, mut parent: CssNode, index: Option<usize>) {
-    // 		parent.adopt_child(self, index);
-    // 	}`
-
-    // pub fn is_erroneous_recursive(&self) -> bool {
-    // 	return self.issues.len() > 0 && self.children.iter().any(|c| c.is_erroneous(recursive));
-    // }
-
-    // pub fn set_node() -> bool {
-    // 	todo!()
-    // }
-
-    // pub fn add_child(&mut self, mut node: &mut CssNode) {
-    // 	node.attach_parent(*self, None);
-    // 	self.update_offset_and_length(&*node);
-    // }
-
-    // pub fn has_children(&self) -> bool {
-    // 	return self.children.len() > 0;
-    // }
-
-    // pub fn get_children(&self) -> &Vec<Box<CssNode>> {
-    // 	return &self.children;
-    // }
-
-    // pub fn get_child(&self, index: usize) -> Option<&Box<CssNode>> {
-    // 	return self.children.get(index);
-    // }
-
-    // pub fn add_children(&mut self, mut nodes: Vec<CssNode>) {
-    // 	self.children.append(&mut nodes.into_iter().map(|n| Box::new(n)).collect());
-    //
 }
 
 impl Default for CssNodeTree {
     fn default() -> Self {
-        return CssNodeTree(Tree::new(CssNode {
-            offset: 0,
-            length: 0,
-            data: HashMap::new(),
-            //text_provider: None,
-            issues: Vec::new(),
-            node_type: CssNodeType::ROOT,
-        }), String::new());
+        return CssNodeTree(
+            SourceLessCssNodeTree::new(CssNode {
+                offset: 0,
+                length: 0,
+                data: HashMap::new(),
+                //text_provider: None,
+                issues: Vec::new(),
+                node_type: CssNodeType::ROOT,
+            }),
+            String::new(),
+        );
     }
 }

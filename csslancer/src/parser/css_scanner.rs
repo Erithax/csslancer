@@ -86,13 +86,13 @@ impl MultiLineStream {
     }
 
     pub fn char_at(&self, byte_offset: usize) -> char {
-        return self.source[byte_offset..].chars().next().unwrap()
+        return self.source[byte_offset..].chars().next().unwrap();
     }
 
     pub fn char_at_infallible(&self, byte_offset: usize) -> char {
-        return self.source[byte_offset..].chars().next().unwrap_or('\0')
+        return self.source[byte_offset..].chars().next().unwrap_or('\0');
     }
- 
+
     pub fn get_position(&self) -> usize {
         return self.position;
     }
@@ -108,7 +108,7 @@ impl MultiLineStream {
     }
 
     pub fn take_source(&mut self) -> String {
-        return std::mem::take(&mut self.source)
+        return std::mem::take(&mut self.source);
     }
 
     /// `step` is byte count
@@ -118,20 +118,18 @@ impl MultiLineStream {
 
     // Caller ensure current position is at valid UTF8 code point and before EOF
     pub fn curr_char(&self) -> char {
-        return self.char_at(self.position)
+        return self.char_at(self.position);
     }
 
     // Returns '\0' if current position at or after EOF
     pub fn curr_char_infallible(&self) -> char {
-        return self.char_at_infallible(self.position)
+        return self.char_at_infallible(self.position);
     }
 
     pub fn next_char(&mut self) -> char {
-        let ch = self.source.chars()
-            .nth(self.position)
-            .unwrap_or('\0');
+        let ch = self.source.chars().nth(self.position).unwrap_or('\0');
         self.position += ch.len_utf8();
-        return ch
+        return ch;
     }
 
     pub fn peek_char(&mut self, n: usize) -> Option<char> {
@@ -158,9 +156,9 @@ impl MultiLineStream {
     pub fn advance_if_chars(&mut self, chars: &str) -> bool {
         if self.source[self.position..].starts_with(chars) {
             self.position += chars.len();
-            return true
+            return true;
         }
-        return false
+        return false;
     }
 
     pub fn advance_while_char<F>(&mut self, mut condition: F) -> usize
@@ -168,18 +166,18 @@ impl MultiLineStream {
         F: FnMut(char) -> bool,
     {
         if self.position >= self.source.len() {
-            return 0
+            return 0;
         }
         let start_pos = self.position;
         let mut c;
         while self.position < self.length {
             c = self.char_at(self.position);
             if !condition(c) {
-                break
+                break;
             }
             self.position += c.len_utf8();
         }
-        return self.position - start_pos
+        return self.position - start_pos;
     }
 }
 
@@ -251,51 +249,19 @@ pub fn static_unit_table(s: &str) -> Option<TokenType> {
         TokenType::EMS
     } else if s == "ex" {
         TokenType::EXS
-    } else if s == "px" {
+    } else if s == "px" || s == "cm" || s == "mm" || s == "in" || s == "pt" || s == "pc" {
         TokenType::Length
-    } else if s == "cm" {
-        TokenType::Length
-    } else if s == "mm" {
-        TokenType::Length
-    } else if s == "in" {
-        TokenType::Length
-    } else if s == "pt" {
-        TokenType::Length
-    } else if s == "pc" {
-        TokenType::Length
-    } else if s == "deg" {
+    } else if s == "deg" || s == "rad" || s == "grad" {
         TokenType::Angle
-    } else if s == "rad" {
-        TokenType::Angle
-    } else if s == "grad" {
-        TokenType::Angle
-    } else if s == "ms" {
+    } else if s == "ms" || s == "s" {
         TokenType::Time
-    } else if s == "s" {
-        TokenType::Time
-    } else if s == "hz" {
+    } else if s == "hz" || s == "khz" {
         TokenType::Freq
-    } else if s == "khz" {
-        TokenType::Freq
-    } else if s == "%" {
+    } else if s == "%" || s == "fr" {
         TokenType::Percentage
-    } else if s == "fr" {
-        TokenType::Percentage
-    } else if s == "dpi" {
+    } else if s == "dpi" || s == "dpcm" {
         TokenType::Resolution
-    } else if s == "dpcm" {
-        TokenType::Resolution
-    } else if s == "cqw" {
-        TokenType::ContainerQueryLength
-    } else if s == "cqh" {
-        TokenType::ContainerQueryLength
-    } else if s == "cqi" {
-        TokenType::ContainerQueryLength
-    } else if s == "cqb" {
-        TokenType::ContainerQueryLength
-    } else if s == "cqmin" {
-        TokenType::ContainerQueryLength
-    } else if s == "cqmax" {
+    } else if s == "cqw" || s == "cqh" || s == "cqi" || s == "cqb" || s == "cqmin" || s == "cqmax" {
         TokenType::ContainerQueryLength
     } else {
         TokenType::_INVALID
@@ -321,26 +287,26 @@ impl Scanner {
     ) -> Self {
         return Scanner {
             stream: MultiLineStream::new(source),
-            ignore_comments: ignore_comments,
-            ignore_whitespace: ignore_whitespace,
-            in_url: in_url,
+            ignore_comments,
+            ignore_whitespace,
+            in_url,
         };
     }
 
     pub fn finish_token(&self, offset: usize, token_type: TokenType, text: String) -> Token {
         return Token {
-            offset: offset,
+            offset,
             length: self.stream.position - offset,
-            token_type: token_type,
-            text: text,
+            token_type,
+            text,
         };
     }
 
     pub fn finish_token_auto_text(&self, offset: usize, token_type: TokenType) -> Token {
         return Token {
-            offset: offset,
+            offset,
             length: self.stream.position - offset,
-            token_type: token_type,
+            token_type,
             text: self.stream.substring_to_curr(offset).to_string(),
         };
     }
@@ -465,10 +431,7 @@ impl Scanner {
         }
 
         // single character tokens
-        token_type = static_token(
-            self.stream
-                .peek_char_infallible(0),
-        );
+        token_type = static_token(self.stream.peek_char_infallible(0));
         if let Some(tt) = token_type {
             let advance_bytes = self.stream.peek_char_infallible(0).len_utf8();
             self.stream.advance(advance_bytes);
@@ -548,7 +511,7 @@ impl Scanner {
     }
 
     fn _number(&mut self) -> bool {
-        let mut npeek_char;
+        let npeek_char;
         let mut npeek = 0;
         if self.stream.peek_char_infallible(0) == '.' {
             npeek = 1;
@@ -558,7 +521,8 @@ impl Scanner {
         }
         let ch = self.stream.peek_char_infallible(npeek);
         if ch.is_ascii_digit() {
-            self.stream.advance(npeek_char.and_then(|c| Some(c.len_utf8())).unwrap_or(0) + ch.len_utf8());
+            self.stream
+                .advance(npeek_char.map(|c| c.len_utf8()).unwrap_or(0) + ch.len_utf8());
             self.stream
                 .advance_while_char(|ch| return ch.is_ascii_digit() || (npeek == 0 && ch == '.'));
             return true;
@@ -754,10 +718,10 @@ impl Scanner {
         if self.stream.advance_if_char('+') {
             let code_points = self.stream.advance_while_char(|ch| ch.is_ascii_hexdigit())
                 + self.stream.advance_while_char(|ch| ch == '?');
-            if code_points >= 1 && code_points <= 6 {
+            if (1..=6).contains(&code_points) {
                 if self.stream.advance_if_char('-') {
                     let digits = self.stream.advance_while_char(|ch| ch.is_ascii_hexdigit());
-                    if digits >= 1 && digits <= 6 {
+                    if (0..=6).contains(&digits) {
                         return true;
                     }
                 } else {
@@ -775,6 +739,8 @@ impl Default for Scanner {
     }
 }
 
+#[allow(clippy::identity_op)]
+#[allow(clippy::erasing_op)]
 fn hex_string_to_num(s: &str) -> Option<usize> {
     // `hex_digit_lsb_rev_idx` is the reverse index of the least significant bit of the hex digit
     //      e.g. hex_digit_lsb_rev_idx of `a` in `#04af44` is 12
@@ -891,14 +857,20 @@ fn hex_string_to_num(s: &str) -> Option<usize> {
     return Some(result);
 }
 
-
 #[cfg(test)]
 mod test_css_scanner {
-    use super::TokenType;
     use super::Scanner;
+    use super::TokenType;
     use super::TokenType::*;
 
-    fn ast(scanner: &mut Scanner, source: &str, len: usize, offset: usize, text: &str, token_types: Vec<TokenType>) {
+    fn ast(
+        scanner: &mut Scanner,
+        source: &str,
+        len: usize,
+        offset: usize,
+        text: &str,
+        token_types: Vec<TokenType>,
+    ) {
         scanner.set_source(source.to_owned());
         let token = scanner.scan();
         assert_eq!(token.length, len);
@@ -915,19 +887,47 @@ mod test_css_scanner {
     fn whitespace() {
         let mut sc = Scanner::default();
         ast(&mut sc, " @", 1, 1, "@", vec![Delim]);
-        ast(&mut sc, " /* comment*/ \n/*comment*/@", 1, 26, "@", vec![Delim]);
-    
+        ast(
+            &mut sc,
+            " /* comment*/ \n/*comment*/@",
+            1,
+            26,
+            "@",
+            vec![Delim],
+        );
+
         sc = Scanner::default();
         sc.ignore_whitespace = false;
         ast(&mut sc, " @", 1, 0, " ", vec![Whitespace, Delim]);
-        ast(&mut sc, "/*comment*/ @", 1, 11, " ", vec![Whitespace, Delim]);
-    
+        ast(
+            &mut sc,
+            "/*comment*/ @",
+            1,
+            11,
+            " ",
+            vec![Whitespace, Delim],
+        );
+
         sc = Scanner::default();
         sc.ignore_comments = false;
-        ast(&mut sc, " /*comment*/@", 11, 1, "/*comment*/", vec![Comment, Delim]);
-        ast(&mut sc, "/*comment*/ @", 11, 0, "/*comment*/", vec![Comment, Delim]);
+        ast(
+            &mut sc,
+            " /*comment*/@",
+            11,
+            1,
+            "/*comment*/",
+            vec![Comment, Delim],
+        );
+        ast(
+            &mut sc,
+            "/*comment*/ @",
+            11,
+            0,
+            "/*comment*/",
+            vec![Comment, Delim],
+        );
     }
-    
+
     #[test]
     fn token_ident() {
         let sc = &mut Scanner::default();
@@ -949,7 +949,7 @@ mod test_css_scanner {
         ast(sc, "\\0000E9dition", 13, 0, "édition", vec![Ident]);
         ast(sc, "S\\0000e9f", 9, 0, "Séf", vec![Ident]);
     }
-    
+
     #[test]
     fn token_url() {
         let sc = &mut Scanner::default();
@@ -963,11 +963,11 @@ mod test_css_scanner {
             assert_eq!(token.text, text);
             assert_eq!(token.token_type, token_type);
         }
-    
+
         assert_url_argument(sc, "http://msft.com", "http://msft.com", UnquotedString);
         assert_url_argument(sc, "http://msft.com\"", "http://msft.com", UnquotedString);
     }
-    
+
     #[test]
     fn token_at_keyword() {
         let sc = &mut Scanner::default();
@@ -979,11 +979,18 @@ mod test_css_scanner {
         ast(sc, "@page", 5, 0, "@page", vec![AtKeyword]);
         ast(sc, "@charset", 8, 0, "@charset", vec![Charset]);
         ast(sc, "@-mport", 7, 0, "@-mport", vec![AtKeyword]);
-        ast(sc, "@\u{00f0}mport", 8, 0, "@\u{00f0}mport", vec![AtKeyword]);
+        ast(
+            sc,
+            "@\u{00f0}mport",
+            8,
+            0,
+            "@\u{00f0}mport",
+            vec![AtKeyword],
+        );
         ast(sc, "@apply", 6, 0, "@apply", vec![AtKeyword]);
         ast(sc, "@", 1, 0, "@", vec![Delim]);
     }
-    
+
     #[test]
     fn token_number() {
         let sc = &mut Scanner::default();
@@ -993,7 +1000,7 @@ mod test_css_scanner {
         ast(sc, ".234.", 4, 0, ".234", vec![Num, Delim]);
         ast(sc, "..234", 1, 0, ".", vec![Delim, Num]);
     }
-    
+
     #[test]
     fn token_delim() {
         let sc = &mut Scanner::default();
@@ -1004,7 +1011,7 @@ mod test_css_scanner {
         ast(sc, "'", 1, 0, "'", vec![BadString]);
         ast(sc, "\"", 1, 0, "\"", vec![BadString]);
     }
-    
+
     #[test]
     fn token_hash() {
         let sc = &mut Scanner::default();
@@ -1012,7 +1019,7 @@ mod test_css_scanner {
         ast(sc, "#-mport", 7, 0, "#-mport", vec![Hash]);
         ast(sc, "#123", 4, 0, "#123", vec![Hash]);
     }
-    
+
     #[test]
     fn token_dimension_or_percentage() {
         let sc = &mut Scanner::default();
@@ -1037,30 +1044,51 @@ mod test_css_scanner {
         ast(sc, "200dpi", 6, 0, "200dpi", vec![Resolution]);
         ast(sc, "123dpcm", 7, 0, "123dpcm", vec![Resolution]);
     }
-    
+
     #[test]
     fn token_string() {
         let sc = &mut Scanner::default();
         ast(sc, "'farboo'", 8, 0, "'farboo'", vec![String]);
         ast(sc, "\"farboo\"", 8, 0, "\"farboo\"", vec![String]);
-        ast(sc, "\"farbo\u{00f0}\"", 9, 0, "\"farbo\u{00f0}\"", vec![String]);
+        ast(
+            sc,
+            "\"farbo\u{00f0}\"",
+            9,
+            0,
+            "\"farbo\u{00f0}\"",
+            vec![String],
+        );
         ast(sc, "\"far\\\"oo\"", 9, 0, "\"far\"oo\"", vec![String]);
         ast(sc, "\"fa\\\noo\"", 8, 0, "\"fa\noo\"", vec![String]);
         ast(sc, "\"fa\\\roo\"", 8, 0, "\"fa\roo\"", vec![String]);
-        ast(sc, "\"fa\\\u{000c}oo\"", 8, 0, "\"fa\u{000c}oo\"", vec![String]);
+        ast(
+            sc,
+            "\"fa\\\u{000c}oo\"",
+            8,
+            0,
+            "\"fa\u{000c}oo\"",
+            vec![String],
+        );
         ast(sc, "'farboo\"", 8, 0, "'farboo\"", vec![BadString]);
         ast(sc, "\"farboo", 7, 0, "\"farboo", vec![BadString]);
         ast(sc, "'", 1, 0, "'", vec![BadString]);
         ast(sc, "\"", 1, 0, "\"", vec![BadString]);
     }
-    
+
     #[test]
     fn token_cdo() {
         let sc = &mut Scanner::default();
         ast(sc, "<!--", 4, 0, "<!--", vec![CDO]);
-        ast(sc, "<!-\n-", 1, 0, "<", vec![Delim, Exclamation, Delim, Delim]);
+        ast(
+            sc,
+            "<!-\n-",
+            1,
+            0,
+            "<",
+            vec![Delim, Exclamation, Delim, Delim],
+        );
     }
-    
+
     #[test]
     fn token_cdc() {
         let sc = &mut Scanner::default();
@@ -1068,7 +1096,7 @@ mod test_css_scanner {
         ast(sc, "--y>", 3, 0, "--y", vec![Ident, Delim]);
         ast(sc, "--<", 2, 0, "--", vec![Ident, Delim]);
     }
-    
+
     #[test]
     fn token_misc_delims_and_punct() {
         let sc = &mut Scanner::default();
@@ -1081,7 +1109,7 @@ mod test_css_scanner {
         ast(sc, "(  ", 1, 0, "(", vec![ParenthesisL]);
         ast(sc, ")  ", 1, 0, ")", vec![ParenthesisR]);
     }
-    
+
     #[test]
     fn token_dashmatch_and_includes() {
         let sc = &mut Scanner::default();
@@ -1093,7 +1121,7 @@ mod test_css_scanner {
         ast(sc, "$=", 2, 0, "$=", vec![SuffixOperator]);
         ast(sc, "*=", 2, 0, "*=", vec![SubstringOperator]);
     }
-    
+
     #[test]
     fn comments() {
         let sc = &mut Scanner::default();
@@ -1102,16 +1130,14 @@ mod test_css_scanner {
         ast(sc, "/*abcd  */", 0, 10, "", vec![EOF]);
         ast(sc, "/* ab- .-cd  */", 0, 15, "", vec![EOF]);
     }
-    
+
     #[test]
     fn whitespaces() {
         let sc = &mut Scanner::default();
         ast(sc, " ", 0, 1, "", vec![EOF]);
         ast(sc, "      ", 0, 6, "", vec![EOF]);
     }
-    
-    
-    
+
     fn assert_token_sequence(scanner: &mut Scanner, source: &str, tokens: Vec<TokenType>) {
         scanner.set_source(source.to_owned());
         let mut token = scanner.scan();
@@ -1122,7 +1148,7 @@ mod test_css_scanner {
             i += 1;
         }
     }
-    
+
     // tests with skipping comments
     #[test]
     fn token_sequence() {
@@ -1135,6 +1161,4 @@ mod test_css_scanner {
         assert_token_sequence(sc, "red-->", vec![Ident, Delim]);
         assert_token_sequence(sc, "@ import", vec![Delim, Ident]);
     }
-    
-
 }

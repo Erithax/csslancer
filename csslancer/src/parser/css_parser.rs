@@ -1,14 +1,13 @@
 use ego_tree::{NodeId, NodeMut, NodeRef};
-use lsp_types::TextDocumentItem;
 use regex::Regex;
 use regex::RegexBuilder;
 
+use crate::facts;
 use crate::parser::css_error::*;
 use crate::parser::css_node_types::*;
 use crate::parser::css_nodes::*;
 use crate::parser::css_scanner::*;
 use crate::workspace::source::Source;
-use crate::facts;
 use csslancer_macro::addchild;
 use csslancer_macro::addchildbool;
 
@@ -20,19 +19,19 @@ pub struct Mark {
     last_err: Option<Token>,
 }
 
-impl ITextProvider for TextDocumentItem {
-    fn get_text(&self, offset: usize, length: usize) -> &str {
-        if self.version != self.version {
-            panic!("Underlying model has changed, AST is no longert valid");
-        }
-        return &self.text[offset..length];
-    }
-}
+// impl ITextProvider for TextDocumentItem {
+//     fn get_text(&self, offset: usize, length: usize) -> &str {
+//         if self.version != self.version {
+//             panic!("Underlying model has changed, AST is no longert valid");
+//         }
+//         return &self.text[offset..length];
+//     }
+// }
 
 impl ITextProvider for &Source {
     fn get_text(&self, offset: usize, length: usize) -> &str {
-        // TODO version check
-        return &self.text()[offset..length]
+        // TODO? version check
+        return &self.text()[offset..length];
     }
 }
 
@@ -64,7 +63,8 @@ pub struct Parser {
 impl Parser {
     pub fn new(mut scanner: Scanner) -> Self {
         let token = scanner.scan();
-        let tree = SourceLessCssNodeTree::new(CssNode::new(usize::MAX, usize::MAX, CssNodeType::ROOT));
+        let tree =
+            SourceLessCssNodeTree::new(CssNode::new(0, scanner.stream.length, CssNodeType::ROOT));
         return Self {
             scanner,
             token,
@@ -77,9 +77,9 @@ impl Parser {
 
     pub fn new_with_text(text: String) -> Self {
         let mut scanner = Scanner::default();
+        let tree = SourceLessCssNodeTree::new(CssNode::new(0, text.len(), CssNodeType::ROOT));
         scanner.set_source(text);
         let token = scanner.scan();
-        let tree = SourceLessCssNodeTree::new(CssNode::new(usize::MAX, usize::MAX, CssNodeType::ROOT));
         return Self {
             scanner,
             token,
@@ -87,15 +87,15 @@ impl Parser {
             last_error_token: None,
             root: tree.0.root().id(),
             tree,
-        }
+        };
     }
 
     pub fn take_source(&mut self) -> String {
-        return self.scanner.stream.take_source()
+        return self.scanner.stream.take_source();
     }
 
     pub fn take_tree(&mut self) -> SourceLessCssNodeTree {
-        return std::mem::take(&mut self.tree)
+        return std::mem::take(&mut self.tree);
     }
 
     // =======================
@@ -167,7 +167,7 @@ impl Parser {
     }
 
     pub fn value(&self, node_id: NodeId) -> Option<&CssNode> {
-        return self.tree.0.get(node_id).and_then(|n| Some(n.value()));
+        return self.tree.0.get(node_id).map(|n| n.value());
     }
     pub fn value_u(&self, node_id: NodeId) -> &CssNode {
         return unsafe { self.tree.0.get_unchecked(node_id).value() };
@@ -196,6 +196,8 @@ impl Parser {
         return false;
     }
 
+    /// marks node with `node_id` with the specified error, performs the specified resync
+    /// and
     pub fn finish_u(
         &mut self,
         node_id: NodeId,
@@ -208,9 +210,11 @@ impl Parser {
                 self.mark_error_u(node_id, err, resync_tokens, resync_stop_tokens);
             }
             if let Some(prev) = &self.prev_token {
+                // length with more tokens belonging together
                 let prev_end = prev.offset + prev.length;
                 let mut v = self.nodemut_u(node_id);
                 v.value().length = if prev_end > v.value().offset {
+                    // length from previous node end to `node_id` offset
                     prev_end - v.value().offset
                 } else {
                     0
@@ -244,14 +248,14 @@ impl Parser {
         // vscode-css-languageservice has this check but it causes errors
         // here because last_error_token may be set in a parser combinator
         // branch that failed and was not attached to the tree
-        // I think this works in vscode-css-languageservice because it is 
+        // I think this works in vscode-css-languageservice because it is
         // a object reference compare
         if Some(&self.token) != self.last_error_token.as_ref() {
             // do not report twice on the same token
             let offset = self.token.offset;
             let length = self.token.length;
             self.nodemut_u(node_id).value().add_issue(Marker {
-                error: error,
+                error,
                 level: Level::Error,
                 message: "".to_string(),
                 offset,
@@ -292,13 +296,13 @@ impl Parser {
         return token_types.contains(&self.token.token_type);
     }
 
-    /// Peeks regex in current token text, callers must anchor the regex match to 
+    /// Peeks regex in current token text, callers must anchor the regex match to
     /// the token text start with a `^`, if this is desired
     pub fn peek_regex(&self, token_type: TokenType, regex: Regex) -> bool {
         if self.token.token_type != token_type {
             return false;
         }
-        return regex.is_match(&self.token.text)
+        return regex.is_match(&self.token.text);
     }
 
     pub fn has_whitespace(&self) -> bool {
@@ -318,7 +322,7 @@ impl Parser {
     }
 
     pub fn accept_unicode_range(&mut self) -> bool {
-        if let Some(_) = self.scanner.try_scan_unicode() {
+        if self.scanner.try_scan_unicode().is_some() {
             self.consume_token();
             return true;
         }
@@ -413,51 +417,58 @@ impl Parser {
         self.token = self.scanner.scan();
         let node = self.parse_stylesheet();
         self.append(self.root, node);
-        return CssNodeTree::new(self.take_tree(), self.take_source())
+        return CssNodeTree::new(self.take_tree(), self.take_source());
     }
 
     pub fn into_stylesheet(&mut self) -> CssNodeTree {
         let node = self.parse_stylesheet();
         self.append(self.root, node);
-        return CssNodeTree::new(self.take_tree(), self.take_source())
+        return CssNodeTree::new(self.take_tree(), self.take_source());
     }
 
     pub fn into_css_node_tree(mut self) -> CssNodeTree {
-        return CssNodeTree::new(self.take_tree(), self.take_source())
-    }
-    
-    pub fn into_parsed_by_fn<F: FnMut(&mut Self) -> Option<NodeId>>(mut self, mut f: F) -> Option<CssNodeTree> {
-        if let Some(id) = f(&mut self) {
-            self.append(self.root, id);
-            return Some(self.into_css_node_tree())
-        }
-        return None
+        return CssNodeTree::new(self.take_tree(), self.take_source());
     }
 
-    pub fn get_tree_parsed_by_fn<F: FnMut(&mut Self) -> Option<NodeId>>(&mut self, mut f: F) -> Option<&SourceLessCssNodeTree> {
+    pub fn into_parsed_by_fn<F: FnMut(&mut Self) -> Option<NodeId>>(
+        mut self,
+        mut f: F,
+    ) -> Option<CssNodeTree> {
+        if let Some(id) = f(&mut self) {
+            self.append(self.root, id);
+            return Some(self.into_css_node_tree());
+        }
+        return None;
+    }
+
+    pub fn get_tree_parsed_by_fn<F: FnMut(&mut Self) -> Option<NodeId>>(
+        &mut self,
+        mut f: F,
+    ) -> Option<&SourceLessCssNodeTree> {
         if let Some(id) = f(self) {
             self.append(self.root, id);
-            return Some(&self.tree)
+            return Some(&self.tree);
         }
-        return None
+        return None;
     }
 
     pub fn parse_fn<F>(input: String, mut f: F) -> Option<CssNodeTree>
-        where F: FnMut(&mut Self) -> Option<NodeId> 
+    where
+        F: FnMut(&mut Self) -> Option<NodeId>,
     {
         let mut scanner = Scanner::default();
         scanner.set_source(input);
-        let t= scanner.scan();
+        let t = scanner.scan();
         let mut parser = Parser::new(scanner);
         parser.token = t;
-        if let Some(_) = f(&mut parser) {
-            return Some(CssNodeTree::new(parser.take_tree(), parser.take_source()))
+        if f(&mut parser).is_some() {
+            return Some(CssNodeTree::new(parser.take_tree(), parser.take_source()));
         }
-        return None
+        return None;
     }
 
     pub fn parse_stylesheet_fall(&mut self) -> Option<NodeId> {
-        return Some(self.parse_stylesheet())
+        return Some(self.parse_stylesheet());
     }
 
     pub fn parse_stylesheet(&mut self) -> NodeId {
@@ -564,21 +575,25 @@ impl Parser {
     }
 
     pub fn parse_rule_set(&mut self, is_nested: bool) -> Option<NodeId> {
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::RuleSet(RuleSet {
+                selectors: self.root,
+            }),
+        }));
+
         let selectors = self.orphan(CssNodeType::Nodelist);
 
         if let Some(sel) = self.parse_selector(is_nested) {
             self.append(selectors, sel);
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_rule_set()
+                .selectors = selectors;
         } else {
             return None;
         }
-
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                // TODO: if RuleSet declarations is None, should it even 'extend' BodyDeclaration?
-                //       Should BodyDeclaration.declarations be Option?
-                body_decl_type: BodyDeclarationType::RuleSet(RuleSet { selectors }),
-            }));
 
         self.append(node, selectors);
 
@@ -645,11 +660,11 @@ impl Parser {
             | CssNodeType::Import
             | CssNodeType::AtApplyRule => true,
             CssNodeType::VariableDeclaration(v) => return v.needs_semicolon,
-            CssNodeType::MixinReference(m) => return !m.content.is_some(),
+            CssNodeType::MixinReference(m) => return m.content.is_none(),
             CssNodeType::_AbstractDeclaration(a) => match &a.abstract_decl_type {
                 AbstractDeclarationType::Declaration(d) => match d.declaration_type {
                     DeclarationType::CustomPropertyDeclaration(..) => return true,
-                    DeclarationType::Declaration => return !d.nested_properties.is_some(),
+                    DeclarationType::Declaration => return d.nested_properties.is_none(),
                 },
                 _ => false,
             },
@@ -695,13 +710,13 @@ impl Parser {
                             a.semicolon_position = prev.offset;
                         }
                         _ => {
-                            // TODO vscode CSS language services doesn't seem to make sense as 
+                            // TODO vscode CSS language services doesn't seem to make sense as
                             // decl is cast to `Declaration` which is strange because `semicolon_position`
                             // is a field of `AbstractDeclaration` (superclass of declaration).
                             // This does not line up with the node types for which Self::needs_semicolon_after() is true.
                             // However, this method is called many times where `parse_declaration_func`
-                            // is not a subclass of abstractdeclaration (e.g. through parse_body: parse_rule_set_declaration, 
-                            // _parse_keyframe_selector, parse_layer_declaration, parse_supports_declaration, 
+                            // is not a subclass of abstractdeclaration (e.g. through parse_body: parse_rule_set_declaration,
+                            // _parse_keyframe_selector, parse_layer_declaration, parse_supports_declaration,
                             // parse_media_declaration, parse_page_declaration, parse_stylesheet_statement)
 
                             // panic!("internal code error: node should be Declaration")
@@ -729,31 +744,34 @@ impl Parser {
 
     // node.node_type.is_body_declaration() == true
     /// `parse_declaration_func` must return Option<NodeId> which has node type `_AbstractDeclaration`
-    pub fn parse_body<F>(
-        &mut self,
-        node_id: NodeId,
-        parse_declaration_func: F,
-    ) -> Option<NodeId>
+    pub fn parse_body<F>(&mut self, node_id: NodeId, parse_declaration_func: F) -> Option<NodeId>
     where
         F: FnMut(&mut Self) -> Option<NodeId>,
     {
         #[cfg(debug_assertions)]
-        match self.value_u(node_id).node_type {
-            CssNodeType::_BodyDeclaration(..) => {}
+        match &self.value_u(node_id).node_type {
+            CssNodeType::_BodyDeclaration(b) => {
+                assert!(b.declarations.is_none(), "no bueno");
+            }
             _ => {
                 panic!("internal code error: parse_body(.., node: CssNode ..) node.node_type should be BodyDeclaration");
             }
         }
 
         if let Some(decl) = self.parse_declarations(parse_declaration_func) {
-            self.nodemut_u(node_id).value().node_type.unchecked_body_decl().declarations = Some(decl);
+            self.nodemut_u(node_id)
+                .value()
+                .node_type
+                .unchecked_body_decl()
+                .declarations = Some(decl);
             self.append(node_id, decl);
         } else {
             return self.finito_u(
-                node_id, 
-                Some(ParseError::LeftCurlyExpected), 
+                node_id,
+                Some(ParseError::LeftCurlyExpected),
                 Some(&[TokenType::CurlyR, TokenType::SemiColon]),
-                None)
+                None,
+            );
         }
         return self.varnish(node_id);
     }
@@ -787,18 +805,17 @@ impl Parser {
             return Some(custom_prop_decl);
         }
 
-        let node = self
-            .orphan(CssNodeType::_AbstractDeclaration(AbstractDeclaration {
-                colon_position: self.token.offset,
-                semicolon_position: self.token.offset,
-                abstract_decl_type: AbstractDeclarationType::Declaration(Declaration {
-                    property: self.root,
-                    expr: self.root,
-                    nested_properties: None,
-                    declaration_type: DeclarationType::Declaration,
-                }),
-            }));
-       
+        let node = self.orphan(CssNodeType::_AbstractDeclaration(AbstractDeclaration {
+            colon_position: self.token.offset,
+            semicolon_position: self.token.offset,
+            abstract_decl_type: AbstractDeclarationType::Declaration(Declaration {
+                property: self.root,
+                expr: self.root,
+                nested_properties: None,
+                declaration_type: DeclarationType::Declaration,
+            }),
+        }));
+
         let Some(prop) = self.parse_property() else {
             return None;
         };
@@ -852,7 +869,7 @@ impl Parser {
             // not part of the declaration, but useful information for code assist
         }
 
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn _tryparse_custom_property_declaration(
@@ -862,21 +879,20 @@ impl Parser {
         if !self.peek_regex(TokenType::Ident, Regex::new("^--").unwrap()) {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_AbstractDeclaration(AbstractDeclaration {
-                colon_position: self.token.offset,
-                semicolon_position: self.token.offset + self.token.length,
-                abstract_decl_type: AbstractDeclarationType::Declaration(Declaration {
-                    property: self.root,
-                    expr: self.root,
-                    nested_properties: None,
-                    declaration_type: DeclarationType::CustomPropertyDeclaration(
-                        CustomPropertyDeclaration {
-                            property_set: self.root,
-                        },
-                    ),
-                }),
-            }));
+        let node = self.orphan(CssNodeType::_AbstractDeclaration(AbstractDeclaration {
+            colon_position: self.token.offset,
+            semicolon_position: self.token.offset + self.token.length,
+            abstract_decl_type: AbstractDeclarationType::Declaration(Declaration {
+                property: self.root,
+                expr: self.root,
+                nested_properties: None,
+                declaration_type: DeclarationType::CustomPropertyDeclaration(
+                    CustomPropertyDeclaration {
+                        property_set: self.root,
+                    },
+                ),
+            }),
+        }));
 
         macro_rules! get_abst_decl_mut {
             () => {
@@ -934,11 +950,10 @@ impl Parser {
 
         // try to parse it as nested declaration
         if self.peek(TokenType::CurlyL) {
-            let prop_set = self
-                .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                    declarations: None,
-                    body_decl_type: BodyDeclarationType::CustomPropertySet,
-                }));
+            let prop_set = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+                declarations: None,
+                body_decl_type: BodyDeclarationType::CustomPropertySet,
+            }));
             let declarations =
                 self.parse_declarations(|s: &mut Self| s.parse_rule_set_declaration());
             if let Some(decls) = declarations {
@@ -978,7 +993,6 @@ impl Parser {
                         get_abst_decl_mut!().semicolon_position = self.token.offset;
                     }
                     return self.varnish(node);
-
                 }
             }
         }
@@ -989,7 +1003,7 @@ impl Parser {
         self.append(node, cust_prop_val);
 
         addchild!(prio);
-        
+
         if set_colon_pos && self.token.offset == get_abst_decl_mut!().colon_position + 1 {
             return self.finito_u(node, Some(ParseError::PropertyValueExpected), None, None);
         } else {
@@ -1026,7 +1040,8 @@ impl Parser {
         loop {
             match self.token.token_type.clone() {
                 TokenType::SemiColon | TokenType::Exclamation => {
-                    if is_top_lvl!() { // exclamation or semicolon ends things if we are not inside delims 
+                    if is_top_lvl!() {
+                        // exclamation or semicolon ends things if we are not inside delims
                         break;
                     }
                 }
@@ -1088,7 +1103,7 @@ impl Parser {
             self.consume_token();
         }
         self.varnish(node);
-        return node.into();
+        return node;
     }
 
     pub fn _tryparse_declaration(&mut self, stop_tokens: Option<&[TokenType]>) -> Option<NodeId> {
@@ -1103,10 +1118,9 @@ impl Parser {
     }
 
     pub fn parse_property(&mut self) -> Option<NodeId> {
-        let node = self
-            .orphan(CssNodeType::Property(Property {
-                identifier: self.root,
-            }));
+        let node = self.orphan(CssNodeType::Property(Property {
+            identifier: self.root,
+        }));
 
         let mark = self.mark();
         if self.accept_delim("*") || self.accept_delim("_") {
@@ -1123,7 +1137,7 @@ impl Parser {
                 .unchecked_inner_property()
                 .identifier = prop;
             self.append(node, prop);
-            return self.varnish(node)
+            return self.varnish(node);
         }
         return None;
     }
@@ -1179,45 +1193,41 @@ impl Parser {
     }
 
     pub fn _completeparse_import(&mut self, node: NodeId) -> Option<NodeId> {
-        if self.accept_ident("layer") {
-            if self.accept(TokenType::ParenthesisL) {
-                if let Some(layer_name) = self.parse_layer_name() {
-                    self.append(node, layer_name);
-                } else {
-                    println!("id88 2");
-                    return self.finito_u(
-                        node,
-                        Some(ParseError::IdentifierExpected),
-                        Some(&[TokenType::SemiColon]),
-                        None,
-                    );
-                }
-                if !self.accept(TokenType::ParenthesisR) {
-                    return self.finito_u(
-                        node,
-                        Some(ParseError::RightParenthesisExpected),
-                        Some(&[TokenType::ParenthesisR]),
-                        None,
-                    );
-                }
+        if self.accept_ident("layer") && self.accept(TokenType::ParenthesisL) {
+            if let Some(layer_name) = self.parse_layer_name() {
+                self.append(node, layer_name);
+            } else {
+                println!("id88 2");
+                return self.finito_u(
+                    node,
+                    Some(ParseError::IdentifierExpected),
+                    Some(&[TokenType::SemiColon]),
+                    None,
+                );
+            }
+            if !self.accept(TokenType::ParenthesisR) {
+                return self.finito_u(
+                    node,
+                    Some(ParseError::RightParenthesisExpected),
+                    Some(&[TokenType::ParenthesisR]),
+                    None,
+                );
             }
         }
-        if self.accept_ident("supports") {
-            if self.accept(TokenType::ParenthesisL) {
-                if let Some(decl_or_suppcond) = self
-                    ._tryparse_declaration(None)
-                    .or_else(|| self.parse_supports_condition())
-                {
-                    self.append(node, decl_or_suppcond);
-                }
-                if !self.accept(TokenType::ParenthesisR) {
-                    return self.finito_u(
-                        node,
-                        Some(ParseError::RightParenthesisExpected),
-                        Some(&[TokenType::ParenthesisR]),
-                        None,
-                    );
-                }
+        if self.accept_ident("supports") && self.accept(TokenType::ParenthesisL) {
+            if let Some(decl_or_suppcond) = self
+                ._tryparse_declaration(None)
+                .or_else(|| self.parse_supports_condition())
+            {
+                self.append(node, decl_or_suppcond);
+            }
+            if !self.accept(TokenType::ParenthesisR) {
+                return self.finito_u(
+                    node,
+                    Some(ParseError::RightParenthesisExpected),
+                    Some(&[TokenType::ParenthesisR]),
+                    None,
+                );
             }
         }
         if !self.peek(TokenType::SemiColon) && !self.peek(TokenType::EOF) {
@@ -1238,7 +1248,8 @@ impl Parser {
 
         let node = self.orphan(CssNodeType::Namespace);
         self.consume_token(); // @namespace
-        if let Some(uri_lit) = self.parse_uri_literal() { // uri literal also starts with ident
+        if let Some(uri_lit) = self.parse_uri_literal() {
+            // uri literal also starts with ident
             self.append(node, uri_lit);
         } else {
             if let Some(ident) = self.parse_ident(None) {
@@ -1270,11 +1281,10 @@ impl Parser {
         if !self.peek_at_keyword("@font-face") {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::FontFace,
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::FontFace,
+        }));
 
         self.consume_token(); // @font-face
         return self.parse_body(node, |s: &mut Self| s.parse_rule_set_declaration());
@@ -1287,11 +1297,10 @@ impl Parser {
         {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::ViewPort,
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::ViewPort,
+        }));
         self.consume_token(); // @..viewport
         return self.parse_body(node, |s: &mut Self| s.parse_rule_set_declaration());
     }
@@ -1299,19 +1308,21 @@ impl Parser {
     pub fn parse_keyframe(&mut self) -> Option<NodeId> {
         if !self.peek_regex(
             TokenType::AtKeyword,
-            RegexBuilder::new("^@(\\-(webkit|ms|moz|o)\\-)?keyframes$").case_insensitive(true).build().unwrap(),
+            RegexBuilder::new("^@(\\-(webkit|ms|moz|o)\\-)?keyframes$")
+                .case_insensitive(true)
+                .build()
+                .unwrap(),
         ) {
             return None;
         }
 
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::Keyframe(Keyframe {
-                    keyword: self.root,
-                    identifier: self.root,
-                }),
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::Keyframe(Keyframe {
+                keyword: self.root,
+                identifier: self.root,
+            }),
+        }));
 
         let at_node = self.orphan(CssNodeType::Undefined);
         self.consume_token(); // @keyframe
@@ -1348,11 +1359,10 @@ impl Parser {
     }
 
     pub fn parse_keyframe_selector(&mut self) -> Option<NodeId> {
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::KeyframeSelector,
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::KeyframeSelector,
+        }));
 
         let mut has_content = false;
         if addchildbool!(ident(None)) {
@@ -1383,11 +1393,10 @@ impl Parser {
     }
 
     pub fn parse_tryparse_keyframe_selector(&mut self) -> Option<NodeId> {
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::KeyframeSelector,
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::KeyframeSelector,
+        }));
 
         let mark = self.mark();
 
@@ -1432,13 +1441,10 @@ impl Parser {
         if !self.peek_at_keyword("@property") {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::PropertyAtRule(PropertyAtRule {
-                    name: self.root,
-                }),
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::PropertyAtRule(PropertyAtRule { name: self.root }),
+        }));
         self.consume_token(); // @property
         if !self.peek_regex(TokenType::Ident, Regex::new("^--").unwrap()) {
             println!("id88 55");
@@ -1466,11 +1472,10 @@ impl Parser {
         if !self.peek_at_keyword("@layer") {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::Layer(Layer { names: self.root }),
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::Layer(Layer { names: self.root }),
+        }));
 
         self.consume_token(); // @layer
 
@@ -1523,7 +1528,7 @@ impl Parser {
             //     return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None);
             // }
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_layer_name(&mut self) -> Option<NodeId> {
@@ -1555,11 +1560,10 @@ impl Parser {
         if !self.peek_at_keyword("@supports") {
             return None;
         }
-        let node = self
-            .orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::Supports,
-            }));
+        let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
+            declarations: None,
+            body_decl_type: BodyDeclarationType::Supports,
+        }));
         self.consume_token(); // @supports
         if let Some(supp_cond) = self.parse_supports_condition() {
             self.append(node, supp_cond);
@@ -1586,17 +1590,22 @@ impl Parser {
         // supports_disjunction: supports_condition_in_parens ( S+ OR S+ supports_condition_in_parens )+;
         // supports_declaration_condition: '(' S* declaration ')';
         // general_enclosed: ( FUNCTION | '(' ) ( any | unused )* ')' ;
-        let node = self
-            .orphan(CssNodeType::SupportsCondition(SupportsCondition {
-                lef_parent: 0,
-                rig_parent: 0,
-            }));
+        let node = self.orphan(CssNodeType::SupportsCondition(SupportsCondition {
+            lef_parent: 0,
+            rig_parent: 0,
+        }));
 
         if self.accept_ident("not") {
             addchild!(supports_condition_in_parens);
         } else {
             addchild!(supports_condition_in_parens);
-            if self.peek_regex(TokenType::Ident, RegexBuilder::new("^(and|or)$").case_insensitive(true).build().unwrap()) {
+            if self.peek_regex(
+                TokenType::Ident,
+                RegexBuilder::new("^(and|or)$")
+                    .case_insensitive(true)
+                    .build()
+                    .unwrap(),
+            ) {
                 let text = self.token.text.to_lowercase();
                 while self.accept_ident(&text) {
                     if let Some(supp_cond_pare) = self.parse_supports_condition_in_parens() {
@@ -1609,11 +1618,10 @@ impl Parser {
     }
 
     pub fn parse_supports_condition_in_parens(&mut self) -> Option<NodeId> {
-        let node = self
-            .orphan(CssNodeType::SupportsCondition(SupportsCondition {
-                lef_parent: 0,
-                rig_parent: 0,
-            }));
+        let node = self.orphan(CssNodeType::SupportsCondition(SupportsCondition {
+            lef_parent: 0,
+            rig_parent: 0,
+        }));
         if self.accept(TokenType::ParenthesisL) {
             if let Some(prev) = &self.prev_token {
                 self.nodemut_u(node)
@@ -1748,9 +1756,7 @@ impl Parser {
     pub fn parse_ratio(&mut self) -> Option<NodeId> {
         let mark = self.mark();
         let node = self.orphan(CssNodeType::RatioValue);
-        if self.parse_numeric().is_none() {
-            return None;
-        }
+        self.parse_numeric()?;
         if !self.accept_delim("/") {
             self.restore_at_mark(mark);
             return None;
@@ -1774,17 +1780,20 @@ impl Parser {
 
         while parse_expression {
             if !self.accept(TokenType::ParenthesisL) {
-                return self.finito_u(node, Some(ParseError::LeftParenthesisExpected), None, Some(&[TokenType::CurlyL]));
+                return self.finito_u(
+                    node,
+                    Some(ParseError::LeftParenthesisExpected),
+                    None,
+                    Some(&[TokenType::CurlyL]),
+                );
             }
             if self.peek(TokenType::ParenthesisL) || self.peek_ident("not") {
                 // <media-condition>
                 if let Some(med_cond) = self.parse_media_condition() {
                     self.append(node, med_cond);
                 }
-            } else {
-                if let Some(med_feat) = self.parse_media_feature() {
-                    self.append(node, med_feat);
-                }
+            } else if let Some(med_feat) = self.parse_media_feature() {
+                self.append(node, med_feat);
             }
             // not yet implemented: general enclosed    <TODO?>
             if !self.accept(TokenType::ParenthesisR) {
@@ -1807,7 +1816,7 @@ impl Parser {
         if let Some(med_feat_name) = self.parse_media_feature_name() {
             self.append(node, med_feat_name);
             if self.accept(TokenType::Colon) {
-                if let Some(med_feat_val) = self.parse_media_feature_value() {
+                if let Some(_med_feat_val) = self.parse_media_feature_value() {
                     self.append(node, med_feat_name);
                 } else {
                     return self.finito_u(
@@ -1818,7 +1827,7 @@ impl Parser {
                     );
                 }
             } else if self.parse_media_feature_range_operator() {
-                if let Some(med_feat_val) = self.parse_media_feature_value() {
+                if let Some(_med_feat_val) = self.parse_media_feature_value() {
                     self.append(node, med_feat_name);
                 } else {
                     return self.finito_u(
@@ -1829,7 +1838,7 @@ impl Parser {
                     );
                 }
                 if self.parse_media_feature_range_operator() {
-                    if let Some(med_feat_val) = self.parse_media_feature_value() {
+                    if let Some(_med_feat_val) = self.parse_media_feature_value() {
                         self.append(node, med_feat_name);
                     } else {
                         return self.finito_u(
@@ -2061,10 +2070,8 @@ impl Parser {
                 if let Some(cont_quer) = self.parse_container_query() {
                     self.append(node, cont_quer);
                 }
-            } else {
-                if let Some(med_feat) = self.parse_media_feature() {
-                    self.append(node, med_feat);
-                }
+            } else if let Some(med_feat) = self.parse_media_feature() {
+                self.append(node, med_feat);
             }
             if !self.accept(TokenType::ParenthesisR) {
                 return self.finito_u(
@@ -2243,7 +2250,12 @@ impl Parser {
                         if parens_dep == 0 && bracks_dep == 0 {
                             break;
                         }
-                        return self.finito_u(node, Some(ParseError::LeftCurlyExpected), None, None);
+                        return self.finito_u(
+                            node,
+                            Some(ParseError::LeftCurlyExpected),
+                            None,
+                            None,
+                        );
                     }
                 }
                 ParenthesisL => {
@@ -2361,10 +2373,13 @@ impl Parser {
 
     pub fn parse_simple_selector(&mut self) -> Option<NodeId> {
         // simple_selector
-		//  : element_name [ HASH | class | attrib | pseudo ]* | [ HASH | class | attrib | pseudo ]+ ;
+        //  : element_name [ HASH | class | attrib | pseudo ]* | [ HASH | class | attrib | pseudo ]+ ;
         let node = self.orphan(CssNodeType::SimpleSelector);
-        let mut c= 0;
-        if let Some(subby) = self.parse_element_name().or_else(|| self.parse_nesting_selector()) {
+        let mut c = 0;
+        if let Some(subby) = self
+            .parse_element_name()
+            .or_else(|| self.parse_nesting_selector())
+        {
             self.append(node, subby);
             c += 1;
         }
@@ -2373,59 +2388,60 @@ impl Parser {
             c += 1;
         }
         if c == 0 {
-            return None
+            return None;
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_nesting_selector(&mut self) -> Option<NodeId> {
         if self.peek_delim("&") {
             let node = self.orphan(CssNodeType::SelectorCombinator);
             self.consume_token();
-            return self.varnish(node)
+            return self.varnish(node);
         }
-        return None
+        return None;
     }
 
     pub fn parse_simple_selector_body(&mut self) -> Option<NodeId> {
-        return self.parse_pseudo()
+        return self
+            .parse_pseudo()
             .or_else(|| self.parse_hash())
             .or_else(|| self.parse_class())
-            .or_else(|| self.parse_attribute())
+            .or_else(|| self.parse_attribute());
     }
 
     pub fn parse_selector_ident(&mut self) -> Option<NodeId> {
-        return self.parse_ident(None)
+        return self.parse_ident(None);
     }
 
     pub fn parse_hash(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::Hash) && !self.peek_delim("#") {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::IdentifierSelector);
         if self.accept_delim("#") {
             if self.has_whitespace() || !addchildbool!(selector_ident) {
                 println!("id88 46");
-                return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None)
+                return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None);
             }
         } else {
             self.consume_token(); // #
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_class(&mut self) -> Option<NodeId> {
         // `.IDENT`
         if !self.peek_delim(".") {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::ClassSelector);
         self.consume_token(); // `.`
         if self.has_whitespace() || !addchildbool!(selector_ident) {
             println!("id88 47");
-            return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None)
+            return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None);
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_element_name(&mut self) -> Option<NodeId> {
@@ -2435,38 +2451,36 @@ impl Parser {
         addchild!(namespace_prefix);
         if !addchildbool!(selector_ident) && !self.accept_delim("*") {
             self.restore_at_mark(mark);
-            return None
+            return None;
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_namespace_prefix(&mut self) -> Option<NodeId> {
         let mark = self.mark();
         let node = self.orphan(CssNodeType::NamespacePrefix);
-        if !addchildbool!(ident (None)) && !self.accept_delim("*") {
+        if !addchildbool!(ident(None)) && !self.accept_delim("*") {
             // namespace is optional
         }
         if !self.accept_delim("|") {
             self.restore_at_mark(mark);
-            return None
+            return None;
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_attribute(&mut self) -> Option<NodeId> {
         // attrib : '[' S* IDENT S* [ [ '=' | INCLUDES | DASHMATCH ] S*   [ IDENT | STRING ] S* ]? ']'
         if !self.peek(TokenType::BracketL) {
-            return None
+            return None;
         }
 
-        let node = self.orphan(CssNodeType::AttributeSelector(
-            AttributeSelector {
-                namespace_prefix: None,
-                operator: self.root,
-                value: self.root,
-                identifier: self.root,
-            }
-        ));
+        let node = self.orphan(CssNodeType::AttributeSelector(AttributeSelector {
+            namespace_prefix: None,
+            operator: self.root,
+            value: self.root,
+            identifier: self.root,
+        }));
         self.consume_token(); // `[`
 
         // optional attribute namespace
@@ -2491,16 +2505,20 @@ impl Parser {
         });
 
         if !self.accept(TokenType::BracketR) {
-            return self.finito_u(node, Some(ParseError::RightSquareBracketExpected), None, None)
+            return self.finito_u(
+                node,
+                Some(ParseError::RightSquareBracketExpected),
+                None,
+                None,
+            );
         }
-        return self.varnish(node)
-
+        return self.varnish(node);
     }
 
     pub fn parse_pseudo(&mut self) -> Option<NodeId> {
         // ':' [ IDENT | FUNCTION S* [IDENT S*]? ')' ]
         let Some(node) = self.try_parse_pseudo_identifier() else {
-            return None
+            return None;
         };
         if !self.has_whitespace() && self.accept(TokenType::ParenthesisL) {
             let try_as_selector = |s: &mut Self| {
@@ -2508,19 +2526,19 @@ impl Parser {
                 if let Some(sel) = s.parse_selector(true) {
                     s.append(selectors, sel);
                 } else {
-                    return None
+                    return None;
                 }
                 while s.accept(TokenType::Comma) {
-                    if let Some(sel) = s.parse_selector(true) {
+                    if let Some(_sel) = s.parse_selector(true) {
                         s.append(selectors, selectors);
                     } else {
-                        break
+                        break;
                     }
                 }
                 if s.peek(TokenType::ParenthesisR) {
-                    return s.varnish(selectors)
+                    return s.varnish(selectors);
                 }
-                return None
+                return None;
             };
 
             let has_selector = if let Some(sel) = self.ttry(try_as_selector) {
@@ -2530,148 +2548,161 @@ impl Parser {
                 false
             };
 
-            if !has_selector {
-                if addchildbool!(binary_expr) && self.accept_ident("of") {
-                    if let Some(sel) = self.ttry(try_as_selector) {
-                        self.append(node, sel);
-                    } else {
-                        return self.finito_u(node, Some(ParseError::SelectorExpected), None, None)
-                    }
+            if !has_selector && addchildbool!(binary_expr) && self.accept_ident("of") {
+                if let Some(sel) = self.ttry(try_as_selector) {
+                    self.append(node, sel);
+                } else {
+                    return self.finito_u(node, Some(ParseError::SelectorExpected), None, None);
                 }
             }
 
             if !self.accept(TokenType::ParenthesisR) {
-                return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None)
+                return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None);
             }
         }
-        return self.varnish(node)
-
-
+        return self.varnish(node);
     }
 
     pub fn try_parse_pseudo_identifier(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::Colon) {
-            return None
+            return None;
         }
         let mark = self.mark();
         let node = self.orphan(CssNodeType::PseudoSelector);
         self.consume_token(); // ':'
         if self.has_whitespace() {
             self.restore_at_mark(mark);
-            return None
+            return None;
         }
         // optional, support ::
         self.accept(TokenType::Colon);
-        if self.has_whitespace() || !addchildbool!(ident (None)) {
+        if self.has_whitespace() || !addchildbool!(ident(None)) {
             println!("id88 49"); // TODO: MARKERINO delete this, this was a marker MARKER
-            return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None)
+            return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None);
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn _tryparse_prio(&mut self) -> Option<NodeId> {
         let mark = self.mark();
         if let Some(prio) = self.parse_prio() {
-            return Some(prio)
+            return Some(prio);
         }
         self.restore_at_mark(mark);
-        return None
-    
+        return None;
     }
 
     pub fn parse_prio(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::Exclamation) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::Prio);
         if self.accept(TokenType::Exclamation) && self.accept_ident("important") {
-            return self.varnish(node)
+            return self.varnish(node);
         }
-        return None
+        return None;
     }
 
     pub fn parse_expr(&mut self, stop_on_comma: bool) -> Option<NodeId> {
         let node = self.orphan(CssNodeType::Expression);
         if !addchildbool!(binary_expr) {
-            return None
+            return None;
         }
         loop {
-            if self.peek(TokenType::Comma) { // optional
+            if self.peek(TokenType::Comma) {
+                // optional
                 if stop_on_comma {
-                    return self.varnish(node)
+                    return self.varnish(node);
                 }
                 self.consume_token();
             }
             if !addchildbool!(binary_expr) {
-                break
+                break;
             }
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_unicode_range(&mut self) -> Option<NodeId> {
         if !self.peek_ident("u") {
-            return None
+            return None;
         }
-        let node = self.orphan(CssNodeType::UnicodeRange(
-            UnicodeRange{
-                range_start: self.root,
-                range_end: self.root,
-            }
-        ));
+        let node = self.orphan(CssNodeType::UnicodeRange(UnicodeRange {
+            range_start: self.root,
+            range_end: self.root,
+        }));
         if !self.accept_unicode_range() {
-            return None
+            return None;
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_named_line(&mut self) -> Option<NodeId> {
         // https://www.w3.org/TR/css-grid-1/#named-lines
         if !self.peek(TokenType::BracketL) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::GridLine);
         self.consume_token();
-        while addchildbool!(ident (None)) {
+        while addchildbool!(ident(None)) {
             // loop
         }
         if !self.accept(TokenType::BracketR) {
-            return self.finito_u(node, Some(ParseError::RightSquareBracketExpected), None, None)
+            return self.finito_u(
+                node,
+                Some(ParseError::RightSquareBracketExpected),
+                None,
+                None,
+            );
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_binary_expr(&mut self) -> Option<NodeId> {
-        return self.parse_binary_expr_internal(None, None)
+        return self.parse_binary_expr_internal(None, None);
     }
 
-    pub fn parse_binary_expr_internal(&mut self, preparsed_left: Option<NodeId>, preparsed_oper: Option<NodeId>) -> Option<NodeId> {
-        let mut node = self.orphan(CssNodeType::BinaryExpression(
-            BinaryExpression {
-                left: self.root,
-                right: self.root,
-                operator: self.root,
-            }
-        ));
+    pub fn parse_binary_expr_internal(
+        &mut self,
+        preparsed_left: Option<NodeId>,
+        preparsed_oper: Option<NodeId>,
+    ) -> Option<NodeId> {
+        let mut node = self.orphan(CssNodeType::BinaryExpression(BinaryExpression {
+            left: self.root,
+            right: self.root,
+            operator: self.root,
+        }));
         if let Some(lef) = preparsed_left.or_else(|| self.parse_term()) {
             self.append(node, lef);
-            self.nodemut_u(node).value().node_type.unchecked_binary_expr().left = lef;
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_binary_expr()
+                .left = lef;
         } else {
-            return None
+            return None;
         }
 
         if let Some(oper) = preparsed_oper.or_else(|| self.parse_operator()) {
             self.append(node, oper);
-            self.nodemut_u(node).value().node_type.unchecked_binary_expr().operator = oper;
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_binary_expr()
+                .operator = oper;
         } else {
-            return self.varnish(node)
+            return self.varnish(node);
         }
 
         if let Some(term) = self.parse_term() {
             self.append(node, term);
-            self.nodemut_u(node).value().node_type.unchecked_binary_expr().right = term;
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_binary_expr()
+                .right = term;
         } else {
-            return self.finito_u(node, Some(ParseError::TermExpected), None, None)
+            return self.finito_u(node, Some(ParseError::TermExpected), None, None);
         }
 
         // things needed for multiple binary expressions
@@ -2681,31 +2712,40 @@ impl Parser {
                 node = b;
             }
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_term(&mut self) -> Option<NodeId> {
         let node = self.orphan(CssNodeType::Term(Term {
             operator: None,
-            expression: self.root
+            expression: self.root,
         }));
 
         // optional
         if let Some(uop) = self.parse_unary_operator() {
             self.append(node, uop);
-            self.nodemut_u(node).value().node_type.unchecked_term().operator = Some(uop);
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_term()
+                .operator = Some(uop);
         }
 
         if let Some(expr) = self.parse_term_expression() {
             self.append(node, expr);
-            self.nodemut_u(node).value().node_type.unchecked_term().expression = expr;
-            return self.varnish(node)
+            self.nodemut_u(node)
+                .value()
+                .node_type
+                .unchecked_term()
+                .expression = expr;
+            return self.varnish(node);
         }
-        return None
+        return None;
     }
 
     pub fn parse_term_expression(&mut self) -> Option<NodeId> {
-        return self.parse_uri_literal() // url before function
+        return self
+            .parse_uri_literal() // url before function
             .or_else(|| self.parse_unicode_range())
             .or_else(|| self.parse_function()) // function before ident
             .or_else(|| self.parse_ident(None))
@@ -2713,61 +2753,67 @@ impl Parser {
             .or_else(|| self.parse_numeric())
             .or_else(|| self.parse_hex_color())
             .or_else(|| self.parse_operation())
-            .or_else(|| self.parse_named_line())
+            .or_else(|| self.parse_named_line());
     }
 
     pub fn parse_operation(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::ParenthesisL) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::Undefined);
         self.consume_token(); // '('
-        addchild!(expr (false));
+        addchild!(expr(false));
         if !self.accept(TokenType::ParenthesisR) {
-            return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None)
+            return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None);
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_numeric(&mut self) -> Option<NodeId> {
-        if self.peek(TokenType::Num) ||
-            self.peek(TokenType::Percentage) ||
-            self.peek(TokenType::Resolution) ||
-            self.peek(TokenType::Length) ||
-			self.peek(TokenType::EMS) ||
-			self.peek(TokenType::EXS) ||
-			self.peek(TokenType::Angle) ||
-			self.peek(TokenType::Time) ||
-			self.peek(TokenType::Dimension) ||
-			self.peek(TokenType::ContainerQueryLength) ||
-			self.peek(TokenType::Freq) 
+        if self.peek(TokenType::Num)
+            || self.peek(TokenType::Percentage)
+            || self.peek(TokenType::Resolution)
+            || self.peek(TokenType::Length)
+            || self.peek(TokenType::EMS)
+            || self.peek(TokenType::EXS)
+            || self.peek(TokenType::Angle)
+            || self.peek(TokenType::Time)
+            || self.peek(TokenType::Dimension)
+            || self.peek(TokenType::ContainerQueryLength)
+            || self.peek(TokenType::Freq)
         {
-			let node = self.orphan(CssNodeType::NumericValue);
-			self.consume_token();
-			return self.varnish(node)
-		}
-		return None
+            let node = self.orphan(CssNodeType::NumericValue);
+            self.consume_token();
+            return self.varnish(node);
+        }
+        return None;
     }
 
     pub fn parse_string_literal(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::String) && !self.peek(TokenType::BadString) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::StringLiteral);
         self.consume_token();
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_uri_literal(&mut self) -> Option<NodeId> {
-        if !self.peek_regex(TokenType::Ident, RegexBuilder::new("^url(-prefix)?$").case_insensitive(true).build().unwrap()) {
-            return None
+        if !self.peek_regex(
+            TokenType::Ident,
+            RegexBuilder::new("^url(-prefix)?$")
+                .case_insensitive(true)
+                .build()
+                .unwrap(),
+        ) {
+            return None;
         }
         let mark = self.mark();
         let node = self.orphan(CssNodeType::URILiteral);
         self.accept(TokenType::Ident);
         if self.has_whitespace() || !self.peek(TokenType::ParenthesisL) {
             self.restore_at_mark(mark);
-            return None
+            return None;
         }
         self.scanner.in_url = true;
         self.consume_token(); // '()'
@@ -2777,27 +2823,30 @@ impl Parser {
             return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None);
         }
 
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_url_argument(&mut self) -> Option<NodeId> {
         let node = self.orphan(CssNodeType::Undefined);
-        if !self.accept(TokenType::String) && !self.accept(TokenType::BadString) && !self.accept_unquoted_string() {
-            return None
+        if !self.accept(TokenType::String)
+            && !self.accept(TokenType::BadString)
+            && !self.accept_unquoted_string()
+        {
+            return None;
         }
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_ident(&mut self, reference_types: Option<&[ReferenceType]>) -> Option<NodeId> {
         if !self.peek(TokenType::Ident) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::Identifier(Identifier {
-            reference_types: reference_types.and_then(|r| Some(r.to_vec())),
+            reference_types: reference_types.map(|r| r.to_vec()),
             is_custom_property: self.peek_regex(TokenType::Ident, Regex::new("^--").unwrap()),
         }));
         self.consume_token();
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_function(&mut self) -> Option<NodeId> {
@@ -2809,7 +2858,7 @@ impl Parser {
             arguments: args,
             invocation_type: InvocationType::Function(Function {
                 identifier: self.root,
-            })
+            }),
         }));
         addchild!(function_identifier then {
             self.nodemut_u(node).value().node_type.unchecked_function().identifier = function_identifier;
@@ -2819,14 +2868,14 @@ impl Parser {
 
         if self.has_whitespace() || !self.accept(TokenType::ParenthesisL) {
             self.restore_at_mark(mark);
-            return None
+            return None;
         }
 
         if let Some(fun_arg) = self.parse_function_argument() {
             self.append(args, fun_arg);
             while self.accept(TokenType::Comma) {
                 if self.peek(TokenType::ParenthesisR) {
-                    break
+                    break;
                 }
                 if let Some(fun_arg) = self.parse_function_argument() {
                     self.append(args, fun_arg);
@@ -2837,15 +2886,14 @@ impl Parser {
         }
 
         if !self.accept(TokenType::ParenthesisR) {
-            return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None)
+            return self.finito_u(node, Some(ParseError::RightParenthesisExpected), None, None);
         }
-        return self.varnish(node)
-
+        return self.varnish(node);
     }
 
     pub fn parse_function_identifier(&mut self) -> Option<NodeId> {
         if !self.peek(TokenType::Ident) {
-            return None
+            return None;
         }
         let node = self.orphan(CssNodeType::Identifier(Identifier {
             reference_types: Some(vec![ReferenceType::Function]),
@@ -2854,47 +2902,46 @@ impl Parser {
 
         if self.accept_ident("progid") {
             // support for IE7 specific filters: 'progid:DXImageTransform.Microsoft.MotionBlur(strength=13, direction=310)'
-			if self.accept(TokenType::Colon) {
+            if self.accept(TokenType::Colon) {
                 while self.accept(TokenType::Ident) && self.accept_delim(".") {
                     // loop
                 }
             }
-            return self.varnish(node)
+            return self.varnish(node);
         }
         self.consume_token();
-        return self.varnish(node)
+        return self.varnish(node);
     }
 
     pub fn parse_function_argument(&mut self) -> Option<NodeId> {
-        let node = self.orphan(CssNodeType::FunctionArgument(
-            FunctionArgument {
-                identifier: None,
-                value: self.root,
-            }
-        ));
+        let node = self.orphan(CssNodeType::FunctionArgument(FunctionArgument {
+            identifier: None,
+            value: self.root,
+        }));
         addchild!(expr (true) then {
             self.nodemut_u(node).value().node_type.unchecked_function_argument().value = expr;
             return self.varnish(node)
         });
-        return None
+        return None;
     }
 
     pub fn parse_hex_color(&mut self) -> Option<NodeId> {
-        if self.peek_regex(TokenType::Hash, Regex::new("^#[A-Fa-f0-9]{3}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8}").unwrap()) {
+        if self.peek_regex(
+            TokenType::Hash,
+            Regex::new("^#[A-Fa-f0-9]{3}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8}").unwrap(),
+        ) {
             let node = self.orphan(CssNodeType::HexColorValue);
             self.consume_token();
-            return self.varnish(node)
+            return self.varnish(node);
         }
-        return None
+        return None;
     }
 }
-
-
 
 #[cfg(test)]
 mod test_css_parser {
     use super::*;
-    use csslancer_macro::{assert_parse_node, assert_parse_error};
+    use csslancer_macro::{assert_parse_error, assert_parse_node};
 
     fn assert_node<F: FnMut(&mut Parser) -> Option<NodeId>>(text: &str, f: F) -> CssNodeTree {
         let mut parser = Parser::new_with_text(text.to_owned());
@@ -2903,24 +2950,32 @@ mod test_css_parser {
         let fancy = tree.unwrap().fancy_string();
         println!("{}", fancy);
         let mut markers = Vec::new();
-        tree.as_ref().unwrap().0.nodes()
+        tree.as_ref()
+            .unwrap()
+            .0
+            .nodes()
             .filter(|n| tree.unwrap().is_attached(n.id())) // discard orphans
             .for_each(|n| markers.append(&mut n.value().issues.clone()));
-        
+
         assert!(
-            markers.len() == 0, 
-            "node has errors: {}", markers.iter()
+            markers.len() == 0,
+            "node has errors: {}",
+            markers
+                .iter()
                 .map(|m| &m.message)
                 .fold("".to_owned(), |acc, nex| acc + "\n" + nex)
         );
         assert!(parser.accept(TokenType::EOF), "Expect scanner at EOF");
-        return parser.into_css_node_tree()
+        return parser.into_css_node_tree();
     }
 
     fn assert_no_node<F: FnMut(&mut Parser) -> Option<NodeId>>(text: &str, f: F) {
         let mut parser = Parser::new_with_text(text.to_owned());
         let tree = parser.get_tree_parsed_by_fn(f);
-        assert!(tree.is_none() || !parser.accept(TokenType::EOF), "Did not expect succesfully parsed node");
+        assert!(
+            tree.is_none() || !parser.accept(TokenType::EOF),
+            "Did not expect succesfully parsed node"
+        );
     }
 
     fn assert_error<F: FnMut(&mut Parser) -> Option<NodeId>>(text: &str, f: F, error: ParseError) {
@@ -2928,13 +2983,24 @@ mod test_css_parser {
         let tree = parser.get_tree_parsed_by_fn(f);
         assert!(tree.is_some(), "Failed parsing node");
         let mut markers = Vec::new();
-        tree.as_ref().unwrap().0.nodes()
+        tree.as_ref()
+            .unwrap()
+            .0
+            .nodes()
             .filter(|n| tree.unwrap().is_attached(n.id())) // discard orphans
             .for_each(|n| markers.append(&mut n.value().issues.clone()));
-        
-        assert!(markers.len() != 0, "node has NO errors, when they were expected");
+
+        assert!(
+            markers.len() != 0,
+            "node has NO errors, when they were expected"
+        );
         markers.sort_by_key(|a| a.offset);
-        assert_eq!(markers.first().unwrap().error, error, "incorrect error returned from parsing: {}", text)
+        assert_eq!(
+            markers.first().unwrap().error,
+            error,
+            "incorrect error returned from parsing: {}",
+            text
+        )
     }
 
     #[test]
@@ -2946,23 +3012,42 @@ mod test_css_parser {
         assert_parse_node!("<!-- --> @import \"string\"; <!-- -->", stylesheet_fall);
         assert_parse_node!("@media asdsa { } <!-- --> <!-- -->", stylesheet_fall);
         assert_parse_node!("@media screen, projection { }", stylesheet_fall);
-        assert_parse_node!("@media screen and (max-width: 400px) {  @-ms-viewport { width: 320px; }}", stylesheet_fall);
-        assert_parse_node!("@-ms-viewport { width: 320px; height: 768px; }", stylesheet_fall);
+        assert_parse_node!(
+            "@media screen and (max-width: 400px) {  @-ms-viewport { width: 320px; }}",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@-ms-viewport { width: 320px; height: 768px; }",
+            stylesheet_fall
+        );
         assert_parse_node!("#boo, far {} \n.far boo {}", stylesheet_fall);
         assert_parse_node!("@-moz-keyframes darkWordHighlight { from { background-color: inherit; } to { background-color: rgba(83, 83, 83, 0.7); } }", stylesheet_fall);
         assert_parse_node!("@page { margin: 2.5cm; }", stylesheet_fall);
-        assert_parse_node!("@font-face { font-family: \"Example Font\"; }", stylesheet_fall);
-        assert_parse_node!("@namespace \"http://www.w3.org/1999/xhtml\";", stylesheet_fall);
+        assert_parse_node!(
+            "@font-face { font-family: \"Example Font\"; }",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@namespace \"http://www.w3.org/1999/xhtml\";",
+            stylesheet_fall
+        );
         assert_parse_node!("@namespace pref url(http://test);", stylesheet_fall);
         assert_parse_node!("@-moz-document url(http://test), url-prefix(http://www.w3.org/Style/) { body { color: purple; background: yellow; } }", stylesheet_fall);
         assert_parse_node!("E E[foo] E[foo=\"bar\"] E[foo~=\"bar\"] E[foo^=\"bar\"] E[foo$=\"bar\"] E[foo*=\"bar\"] E[foo|=\"en\"] {}", stylesheet_fall);
         assert_parse_node!("input[type=\"submit\"] {}", stylesheet_fall);
         assert_parse_node!("E:root E:nth-child(n) E:nth-last-child(n) E:nth-of-type(n) E:nth-last-of-type(n) E:first-child E:last-child {}", stylesheet_fall);
         assert_parse_node!("E:first-of-type E:last-of-type E:only-child E:only-of-type E:empty E:link E:visited E:active E:hover E:focus E:target E:lang(fr) E:enabled E:disabled E:checked {}", stylesheet_fall);
-        assert_parse_node!("E::first-line E::first-letter E::before E::after {}", stylesheet_fall);
+        assert_parse_node!(
+            "E::first-line E::first-letter E::before E::after {}",
+            stylesheet_fall
+        );
         assert_parse_node!("E.warning E#myid E:not(s) {}", stylesheet_fall);
         assert_parse_error!("@namespace;", stylesheet_fall, URIExpected);
-        assert_parse_error!("@namespace url(http://test)", stylesheet_fall, SemiColonExpected);
+        assert_parse_error!(
+            "@namespace url(http://test)",
+            stylesheet_fall,
+            SemiColonExpected
+        );
         assert_parse_error!("@charset;", stylesheet_fall, IdentifierExpected);
         assert_parse_error!("@charset 'utf8'", stylesheet_fall, SemiColonExpected);
     }
@@ -2976,11 +3061,27 @@ mod test_css_parser {
         assert_parse_node!("@mskeyframes darkWordHighlight { from { background-color: inherit; } to { background-color: rgba(83, 83, 83, 0.7); } }", stylesheet_fall);
         assert_parse_node!("foo { @unknown-rule; }", stylesheet_fall);
 
-        assert_parse_error!("@unknown-rule (;", stylesheet_fall, RightParenthesisExpected);
-        assert_parse_error!("@unknown-rule [foo", stylesheet_fall, RightSquareBracketExpected);
-        assert_parse_error!("@unknown-rule { [foo }", stylesheet_fall, RightSquareBracketExpected);
+        assert_parse_error!(
+            "@unknown-rule (;",
+            stylesheet_fall,
+            RightParenthesisExpected
+        );
+        assert_parse_error!(
+            "@unknown-rule [foo",
+            stylesheet_fall,
+            RightSquareBracketExpected
+        );
+        assert_parse_error!(
+            "@unknown-rule { [foo }",
+            stylesheet_fall,
+            RightSquareBracketExpected
+        );
         assert_parse_error!("@unknown-rule (foo) {", stylesheet_fall, RightCurlyExpected);
-        assert_parse_error!("@unknown-rule (foo) { .bar {}", stylesheet_fall, RightCurlyExpected);
+        assert_parse_error!(
+            "@unknown-rule (foo) { .bar {}",
+            stylesheet_fall,
+            RightCurlyExpected
+        );
     }
 
     #[test]
@@ -2988,40 +3089,66 @@ mod test_css_parser {
         // Microsoft/vscode#53159
         let tree = assert_parse_node!("@unknown-rule (foo) {} .foo {}", stylesheet_fall);
 
-        let unknown_at_rule = tree.0.root().first_child().unwrap().first_child().unwrap();
-        assert!(unknown_at_rule.value().node_type.same_node_type(
-            &CssNodeType::_BodyDeclaration(
-                BodyDeclaration {
-                    declarations: None,
-                    body_decl_type: BodyDeclarationType::UnknownAtRule(
-                        UnknownAtRule {
-                            at_rule_name: String::new()
-                        }
-                    )
-                }
-            )          
-        ));
+        let unknown_at_rule = tree
+            .0
+             .0
+            .root()
+            .first_child()
+            .unwrap()
+            .first_child()
+            .unwrap();
+        assert!(unknown_at_rule
+            .value()
+            .node_type
+            .same_node_type(&CssNodeType::_BodyDeclaration(BodyDeclaration {
+                declarations: None,
+                body_decl_type: BodyDeclarationType::UnknownAtRule(UnknownAtRule {
+                    at_rule_name: String::new()
+                })
+            })));
         assert_eq!(unknown_at_rule.value().offset, 0);
         assert_eq!(unknown_at_rule.value().length, 13);
 
         // microsoft/vscode-css-languageservice#237
-        assert_parse_node!(".foo { @apply p-4 bg-neutral-50; min-height: var(--space-14); }", stylesheet_fall);
+        assert_parse_node!(
+            ".foo { @apply p-4 bg-neutral-50; min-height: var(--space-14); }",
+            stylesheet_fall
+        );
     }
 
     #[test]
     fn stylesheet_panic() {
-        assert_parse_error!("#boo, far } \n.far boo {}", stylesheet_fall, LeftCurlyExpected);
-        assert_parse_error!("#boo, far { far: 43px; \n.far boo {}", stylesheet_fall, RightCurlyExpected);
-        assert_parse_error!("- @import \"foo\";", stylesheet_fall, RuleOrSelectorExpected);
+        assert_parse_error!(
+            "#boo, far } \n.far boo {}",
+            stylesheet_fall,
+            LeftCurlyExpected
+        );
+        assert_parse_error!(
+            "#boo, far { far: 43px; \n.far boo {}",
+            stylesheet_fall,
+            RightCurlyExpected
+        );
+        assert_parse_error!(
+            "- @import \"foo\";",
+            stylesheet_fall,
+            RuleOrSelectorExpected
+        );
     }
 
     #[test]
     fn font_face() {
         assert_parse_node!("@font-face {}", font_face);
         assert_parse_node!("@font-face { src: url(http://test) }", font_face);
-        assert_parse_node!("@font-face { font-style: normal; font-stretch: normal; }", font_face);
+        assert_parse_node!(
+            "@font-face { font-style: normal; font-stretch: normal; }",
+            font_face
+        );
         assert_parse_node!("@font-face { unicode-range: U+0021-007F }", font_face);
-        assert_parse_error!("@font-face { font-style: normal font-stretch: normal; }", font_face, SemiColonExpected);
+        assert_parse_error!(
+            "@font-face { font-style: normal font-stretch: normal; }",
+            font_face,
+            SemiColonExpected
+        );
     }
 
     #[test]
@@ -3054,35 +3181,82 @@ mod test_css_parser {
         assert_parse_node!("@-moz-keyframes name {}", keyframe);
         assert_parse_node!("@keyframes name { from {} to {}}", keyframe);
         assert_parse_node!("@keyframes name { from {} 80% {} 100% {}}", keyframe);
-        assert_parse_node!("@keyframes name { from { top: 0px; } 80% { top: 100px; } 100% { top: 50px; }}", keyframe);
-        assert_parse_node!("@keyframes name { from { top: 0px; } 70%, 80% { top: 100px; } 100% { top: 50px; }}", keyframe);
-        assert_parse_node!("@keyframes name { from { top: 0px; left: 1px; right: 2px }}", keyframe);
-        assert_parse_node!("@keyframes name { exit 50% { top: 0px; left: 1px; right: 2px }}", keyframe);
-        assert_parse_error!("@keyframes name { from { top: 0px; left: 1px, right: 2px }}", keyframe, SemiColonExpected);
+        assert_parse_node!(
+            "@keyframes name { from { top: 0px; } 80% { top: 100px; } 100% { top: 50px; }}",
+            keyframe
+        );
+        assert_parse_node!(
+            "@keyframes name { from { top: 0px; } 70%, 80% { top: 100px; } 100% { top: 50px; }}",
+            keyframe
+        );
+        assert_parse_node!(
+            "@keyframes name { from { top: 0px; left: 1px; right: 2px }}",
+            keyframe
+        );
+        assert_parse_node!(
+            "@keyframes name { exit 50% { top: 0px; left: 1px; right: 2px }}",
+            keyframe
+        );
+        assert_parse_error!(
+            "@keyframes name { from { top: 0px; left: 1px, right: 2px }}",
+            keyframe,
+            SemiColonExpected
+        );
         assert_parse_error!("@keyframes )", keyframe, IdentifierExpected);
-        assert_parse_error!("@keyframes name { { top: 0px; } }", keyframe, RightCurlyExpected);
+        assert_parse_error!(
+            "@keyframes name { { top: 0px; } }",
+            keyframe,
+            RightCurlyExpected
+        );
         assert_parse_error!("@keyframes name { from, #123", keyframe, PercentageExpected);
-        assert_parse_error!("@keyframes name { 10% from { top: 0px; } }", keyframe, LeftCurlyExpected);
-        assert_parse_error!("@keyframes name { 10% 20% { top: 0px; } }", keyframe, LeftCurlyExpected);
-        assert_parse_error!("@keyframes name { from to { top: 0px; } }", keyframe, LeftCurlyExpected);
+        assert_parse_error!(
+            "@keyframes name { 10% from { top: 0px; } }",
+            keyframe,
+            LeftCurlyExpected
+        );
+        assert_parse_error!(
+            "@keyframes name { 10% 20% { top: 0px; } }",
+            keyframe,
+            LeftCurlyExpected
+        );
+        assert_parse_error!(
+            "@keyframes name { from to { top: 0px; } }",
+            keyframe,
+            LeftCurlyExpected
+        );
     }
 
     #[test]
     fn at_property() {
-        assert_parse_node!("@property --my-color { syntax: '<color>'; inherits: false; initial-value: #c0ffee; }", stylesheet_fall);
+        assert_parse_node!(
+            "@property --my-color { syntax: '<color>'; inherits: false; initial-value: #c0ffee; }",
+            stylesheet_fall
+        );
         assert_parse_error!("@property  {  }", stylesheet_fall, IdentifierExpected);
     }
 
     #[test]
     fn at_container() {
-        assert_parse_node!("@container (width <= 150px) { #inner { background-color: skyblue; }}", stylesheet_fall);
-        assert_parse_node!("@container card (inline-size > 30em) and style(--responsive: true) { }", stylesheet_fall);
-        assert_parse_node!("@container card (inline-size > 30em) { @container style(--responsive: true) {} }", stylesheet_fall);
+        assert_parse_node!(
+            "@container (width <= 150px) { #inner { background-color: skyblue; }}",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@container card (inline-size > 30em) and style(--responsive: true) { }",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@container card (inline-size > 30em) { @container style(--responsive: true) {} }",
+            stylesheet_fall
+        );
     }
 
     #[test]
     fn at_container_query_len_units() {
-        assert_parse_node!("@container (min-width: 700px) { .card h2 { font-size: max(1.5em, 1.23em + 2cqi); } }", stylesheet_fall);
+        assert_parse_node!(
+            "@container (min-width: 700px) { .card h2 { font-size: max(1.5em, 1.23em + 2cqi); } }",
+            stylesheet_fall
+        );
     }
 
     #[test]
@@ -3091,36 +3265,76 @@ mod test_css_parser {
         assert_parse_node!("@ImPort \"asdsadsa\"", import);
         assert_parse_node!("@import \"asdasd\" dsfsdf", import);
         assert_parse_node!("@import \"foo\";", stylesheet_fall);
-        assert_parse_node!("@import url(/css/screen.css) screen, projection;", stylesheet_fall);
-        assert_parse_node!("@import url('landscape.css') screen and (orientation:landscape);", stylesheet_fall);
-        assert_parse_node!("@import url(\"/inc/Styles/full.css\") (min-width: 940px);", stylesheet_fall);
-        assert_parse_node!("@import url(style.css) screen and (min-width:600px);", stylesheet_fall);
-        assert_parse_node!("@import url(\"./700.css\") only screen and (max-width: 700px);", stylesheet_fall);
+        assert_parse_node!(
+            "@import url(/css/screen.css) screen, projection;",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@import url('landscape.css') screen and (orientation:landscape);",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@import url(\"/inc/Styles/full.css\") (min-width: 940px);",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@import url(style.css) screen and (min-width:600px);",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@import url(\"./700.css\") only screen and (max-width: 700px);",
+            stylesheet_fall
+        );
 
         assert_parse_node!("@import url(\"override.css\") layer;", stylesheet_fall);
-        assert_parse_node!("@import url(\"tabs.css\") layer(framework.component);", stylesheet_fall);
+        assert_parse_node!(
+            "@import url(\"tabs.css\") layer(framework.component);",
+            stylesheet_fall
+        );
 
-        assert_parse_node!("@import \"mystyle.css\" supports(display: flex);", stylesheet_fall);
+        assert_parse_node!(
+            "@import \"mystyle.css\" supports(display: flex);",
+            stylesheet_fall
+        );
 
-        assert_parse_node!("@import url(\"narrow.css\") supports(display: flex) handheld and (max-width: 400px);", stylesheet_fall);
-        assert_parse_node!("@import url(\"fallback-layout.css\") supports(not (display: flex));", stylesheet_fall);
+        assert_parse_node!(
+            "@import url(\"narrow.css\") supports(display: flex) handheld and (max-width: 400px);",
+            stylesheet_fall
+        );
+        assert_parse_node!(
+            "@import url(\"fallback-layout.css\") supports(not (display: flex));",
+            stylesheet_fall
+        );
 
         assert_parse_error!("@import", stylesheet_fall, URIOrStringExpected);
     }
 
     #[test]
     fn at_supports() {
-        assert_parse_node!("@supports ( display: flexbox ) { body { display: flexbox } }", supports(false));
+        assert_parse_node!(
+            "@supports ( display: flexbox ) { body { display: flexbox } }",
+            supports(false)
+        );
         assert_parse_node!("@supports not (display: flexbox) { .outline { box-shadow: 2px 2px 2px black; /* unprefixed last */ } }", supports(false));
         assert_parse_node!("@supports ( box-shadow: 2px 2px 2px black ) or ( -moz-box-shadow: 2px 2px 2px black ) or ( -webkit-box-shadow: 2px 2px 2px black ) { }", supports(false));
         assert_parse_node!("@supports ((transition-property: color) or (animation-name: foo)) and (transform: rotate(10deg)) { }", supports(false));
         assert_parse_node!("@supports ((display: flexbox)) { }", supports(false));
-        assert_parse_node!("@supports (display: flexbox !important) { }", supports(false));
-        assert_parse_node!("@supports (grid-area: auto) { @media screen and (min-width: 768px) { .me { } } }", supports(false));
+        assert_parse_node!(
+            "@supports (display: flexbox !important) { }",
+            supports(false)
+        );
+        assert_parse_node!(
+            "@supports (grid-area: auto) { @media screen and (min-width: 768px) { .me { } } }",
+            supports(false)
+        );
         assert_parse_node!("@supports (column-width: 1rem) OR (-moz-column-width: 1rem) OR (-webkit-column-width: 1rem) oR (-x-column-width: 1rem) { }", supports(false)); // #49288
         assert_parse_node!("@supports not (--validValue: , 0 ) {}", supports(false)); // #82178
         assert_parse_error!("@supports (transition-property: color) or (animation-name: foo) and (transform: rotate(10deg)) { }", supports(false), LeftCurlyExpected);
-        assert_parse_error!("@supports display: flexbox { }", supports(false), LeftParenthesisExpected);
+        assert_parse_error!(
+            "@supports display: flexbox { }",
+            supports(false),
+            LeftParenthesisExpected
+        );
     }
 
     #[test]
@@ -3131,26 +3345,70 @@ mod test_css_parser {
         assert_parse_node!("@media only screen and (max-width:850px) { }", media(false));
         assert_parse_node!("@media only screen and (max-width:850px) { }", media(false));
         assert_parse_node!("@media all and (min-width:500px) { }", media(false));
-        assert_parse_node!("@media screen and (color), projection and (color) { }", media(false));
-        assert_parse_node!("@media not screen and (device-aspect-ratio: 16/9) { }", media(false));
-        assert_parse_node!("@media print and (min-resolution: 300dpi) { }", media(false));
-        assert_parse_node!("@media print and (min-resolution: 118dpcm) { }", media(false));
-        assert_parse_node!("@media print { @page { margin: 10% } blockquote, pre { page-break-inside: avoid } }", media(false));
+        assert_parse_node!(
+            "@media screen and (color), projection and (color) { }",
+            media(false)
+        );
+        assert_parse_node!(
+            "@media not screen and (device-aspect-ratio: 16/9) { }",
+            media(false)
+        );
+        assert_parse_node!(
+            "@media print and (min-resolution: 300dpi) { }",
+            media(false)
+        );
+        assert_parse_node!(
+            "@media print and (min-resolution: 118dpcm) { }",
+            media(false)
+        );
+        assert_parse_node!(
+            "@media print { @page { margin: 10% } blockquote, pre { page-break-inside: avoid } }",
+            media(false)
+        );
         assert_parse_node!("@media print { body:before { } }", media(false));
-        assert_parse_node!("@media not (-moz-os-version: windows-win7) { }", media(false));
-        assert_parse_node!("@media not (not (-moz-os-version: windows-win7)) { }", media(false));
+        assert_parse_node!(
+            "@media not (-moz-os-version: windows-win7) { }",
+            media(false)
+        );
+        assert_parse_node!(
+            "@media not (not (-moz-os-version: windows-win7)) { }",
+            media(false)
+        );
         assert_parse_node!("@media (height > 600px) { }", media(false));
         assert_parse_node!("@media (height < 600px) { }", media(false));
         assert_parse_node!("@media (height <= 600px) { }", media(false));
         assert_parse_node!("@media (400px <= width <= 700px) { }", media(false));
         assert_parse_node!("@media (400px >= width >= 700px) { }", media(false));
-        assert_parse_node!("@media screen and (750px <= width < 900px) { }", media(false));
-        assert_parse_error!("@media somename othername2 { }", media(false), LeftCurlyExpected);
+        assert_parse_node!(
+            "@media screen and (750px <= width < 900px) { }",
+            media(false)
+        );
+        assert_parse_error!(
+            "@media somename othername2 { }",
+            media(false),
+            LeftCurlyExpected
+        );
         assert_parse_error!("@media not, screen { }", media(false), MediaQueryExpected);
-        assert_parse_error!("@media not screen and foo { }", media(false), LeftParenthesisExpected);
-        assert_parse_error!("@media not screen and () { }", media(false), IdentifierExpected);
-        assert_parse_error!("@media not screen and (color:) { }", media(false), TermExpected);
-        assert_parse_error!("@media not screen and (color:#234567 { }", media(false), RightParenthesisExpected);
+        assert_parse_error!(
+            "@media not screen and foo { }",
+            media(false),
+            LeftParenthesisExpected
+        );
+        assert_parse_error!(
+            "@media not screen and () { }",
+            media(false),
+            IdentifierExpected
+        );
+        assert_parse_error!(
+            "@media not screen and (color:) { }",
+            media(false),
+            TermExpected
+        );
+        assert_parse_error!(
+            "@media not screen and (color:#234567 { }",
+            media(false),
+            RightParenthesisExpected
+        );
     }
 
     #[test]
@@ -3173,33 +3431,67 @@ mod test_css_parser {
         assert_parse_node!("@page :left, :right { }", page);
         assert_parse_node!("@page : name{ some : \"asdas\" }", page);
         assert_parse_node!("@page : name{ some : \"asdas\" !important }", page);
-        assert_parse_node!("@page : name{ some : \"asdas\" !important; some : \"asdas\" !important }", page);
+        assert_parse_node!(
+            "@page : name{ some : \"asdas\" !important; some : \"asdas\" !important }",
+            page
+        );
         assert_parse_node!("@page rotated { size : landscape }", page);
         assert_parse_node!("@page :left { margin-left: 4cm; margin-right: 3cm; }", page);
-        assert_parse_node!("@page {  @top-right-corner { content: url(foo.png); border: solid green; } }", page);
+        assert_parse_node!(
+            "@page {  @top-right-corner { content: url(foo.png); border: solid green; } }",
+            page
+        );
         assert_parse_node!("@page {  @top-left-corner { content: \" \"; border: solid green; } @bottom-right-corner { content: counter(page); border: solid green; } }", page);
-        assert_parse_error!("@page {  @top-left-corner foo { content: \" \"; border: solid green; } }", page, LeftCurlyExpected);
+        assert_parse_error!(
+            "@page {  @top-left-corner foo { content: \" \"; border: solid green; } }",
+            page,
+            LeftCurlyExpected
+        );
         // no bueno assert_parse_error!("@page {  @XY foo { content: " "; border: solid green; } }", page, UnknownAtRule);
-        assert_parse_error!("@page :left { margin-left: 4cm margin-right: 3cm; }", page, SemiColonExpected);
+        assert_parse_error!(
+            "@page :left { margin-left: 4cm margin-right: 3cm; }",
+            page,
+            SemiColonExpected
+        );
         assert_parse_error!("@page : { }", page, IdentifierExpected);
         assert_parse_error!("@page :left, { }", page, IdentifierExpected);
     }
 
     #[test]
     fn at_layer() {
-        assert_parse_node!("@layer utilities { .padding-sm { padding: .5rem; } }", layer(false));
+        assert_parse_node!(
+            "@layer utilities { .padding-sm { padding: .5rem; } }",
+            layer(false)
+        );
         assert_parse_node!("@layer utilities;", layer(false));
         assert_parse_node!("@layer theme, layout, utilities;", layer(false));
-        assert_parse_node!("@layer utilities { p { margin-block: 1rem; } }", layer(false));
+        assert_parse_node!(
+            "@layer utilities { p { margin-block: 1rem; } }",
+            layer(false)
+        );
         assert_parse_node!("@layer framework { @layer layout { } }", layer(false));
-        assert_parse_node!("@layer framework.layout { @keyframes slide-left {} }", layer(false));
+        assert_parse_node!(
+            "@layer framework.layout { @keyframes slide-left {} }",
+            layer(false)
+        );
 
-        assert_parse_node!("@media (min-width: 30em) { @layer layout { } }", stylesheet_fall);
+        assert_parse_node!(
+            "@media (min-width: 30em) { @layer layout { } }",
+            stylesheet_fall
+        );
 
         assert_parse_error!("@layer theme layout {  }", layer(false), SemiColonExpected);
         assert_parse_error!("@layer theme, layout {  }", layer(false), SemiColonExpected);
-        assert_parse_error!("@layer framework .layout {  }", layer(false), SemiColonExpected);
-        assert_parse_error!("@layer framework. layout {  }", layer(false), IdentifierExpected);
+        assert_parse_error!(
+            "@layer framework .layout {  }",
+            layer(false),
+            SemiColonExpected
+        );
+        assert_parse_error!(
+            "@layer framework. layout {  }",
+            layer(false),
+            IdentifierExpected
+        );
     }
 
     #[test]
@@ -3219,7 +3511,11 @@ mod test_css_parser {
         assert_parse_node!(">>>", combinator);
         assert_parse_node!("/deep/", combinator);
         assert_parse_node!(":host >>> .data-table { width: 100%; }", stylesheet_fall);
-        assert_parse_error!(":host >> .data-table { width: 100%; }", stylesheet_fall, LeftCurlyExpected);
+        assert_parse_error!(
+            ":host >> .data-table { width: 100%; }",
+            stylesheet_fall,
+            LeftCurlyExpected
+        );
     }
 
     #[test]
@@ -3246,7 +3542,10 @@ mod test_css_parser {
         assert_parse_node!("name{ }", rule_set(false));
         assert_parse_node!("	name\n{ some : \"asdas\" }", rule_set(false));
         assert_parse_node!("		name{ some : \"asdas\" !important }", rule_set(false));
-        assert_parse_node!("name{ \n some : \"asdas\" !important; some : \"asdas\" }", rule_set(false));
+        assert_parse_node!(
+            "name{ \n some : \"asdas\" !important; some : \"asdas\" }",
+            rule_set(false)
+        );
         assert_parse_node!("* {}", rule_set(false));
         assert_parse_node!(".far{}", rule_set(false));
         assert_parse_node!("boo {}", rule_set(false));
@@ -3264,7 +3563,10 @@ mod test_css_parser {
         assert_parse_node!("boo {--parens: this()is()ok()}", rule_set(false));
         assert_parse_node!("boo {--squares: this[]is[]ok[]too[]}", rule_set(false));
         assert_parse_node!("boo {--combined: ([{{[]()()}[]{}}])()}", rule_set(false));
-        assert_parse_node!("boo {--weird-inside-delims: {color: green;;;;;;!important;;}}", rule_set(false));
+        assert_parse_node!(
+            "boo {--weird-inside-delims: {color: green;;;;;;!important;;}}",
+            rule_set(false)
+        );
         assert_parse_node!("boo {--validValue: , 0 0}", rule_set(false));
         assert_parse_node!("boo {--validValue: , 0 0;}", rule_set(false));
         assert_parse_error!("boo, { }", rule_set(false), SelectorExpected);
@@ -3275,28 +3577,85 @@ mod test_css_parser {
         // no bueno assert_parse_node!("boo { : value }", rule_set(false));
         assert_parse_error!("boo { prop: ; }", rule_set(false), PropertyValueExpected);
         assert_parse_error!("boo { prop }", rule_set(false), ColonExpected);
-        assert_parse_error!("boo { prop: ; far: 12em; }", rule_set(false), PropertyValueExpected);
+        assert_parse_error!(
+            "boo { prop: ; far: 12em; }",
+            rule_set(false),
+            PropertyValueExpected
+        );
         //no bueno assert_parse_node!("boo { prop: ; 1ar: 12em; }", rule_set(false));
 
-        assert_parse_error!("boo { --too-minimal:}", rule_set(false), PropertyValueExpected);
-        assert_parse_error!("boo { --unterminated: ", rule_set(false), RightCurlyExpected);
-        assert_parse_error!("boo { --double-important: red !important !important;}", rule_set(false), SemiColonExpected);
-        assert_parse_error!("boo {--unbalanced-curlys: {{color: green;}}", rule_set(false), RightCurlyExpected);
-        assert_parse_error!("boo {--unbalanced-parens: not(()cool;}", rule_set(false), LeftCurlyExpected);
-        assert_parse_error!("boo {--unbalanced-parens: not)()(cool;}", rule_set(false), LeftParenthesisExpected);
-        assert_parse_error!("boo {--unbalanced-brackets: not[[]valid;}", rule_set(false), LeftCurlyExpected);
-        assert_parse_error!("boo {--unbalanced-brackets: not][][valid;}", rule_set(false), LeftSquareBracketExpected);
+        assert_parse_error!(
+            "boo { --too-minimal:}",
+            rule_set(false),
+            PropertyValueExpected
+        );
+        assert_parse_error!(
+            "boo { --unterminated: ",
+            rule_set(false),
+            RightCurlyExpected
+        );
+        assert_parse_error!(
+            "boo { --double-important: red !important !important;}",
+            rule_set(false),
+            SemiColonExpected
+        );
+        assert_parse_error!(
+            "boo {--unbalanced-curlys: {{color: green;}}",
+            rule_set(false),
+            RightCurlyExpected
+        );
+        assert_parse_error!(
+            "boo {--unbalanced-parens: not(()cool;}",
+            rule_set(false),
+            LeftCurlyExpected
+        );
+        assert_parse_error!(
+            "boo {--unbalanced-parens: not)()(cool;}",
+            rule_set(false),
+            LeftParenthesisExpected
+        );
+        assert_parse_error!(
+            "boo {--unbalanced-brackets: not[[]valid;}",
+            rule_set(false),
+            LeftCurlyExpected
+        );
+        assert_parse_error!(
+            "boo {--unbalanced-brackets: not][][valid;}",
+            rule_set(false),
+            LeftSquareBracketExpected
+        );
     }
 
     #[test]
     fn nested_ruleset() {
-        assert_parse_node!(".foo { color: red; input { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; :focus { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; .bar { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; &:hover { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; + .bar { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; foo:hover { color: blue }; }", rule_set(false));
-        assert_parse_node!(".foo { color: red; @media screen { color: blue }; }", rule_set(false));
+        assert_parse_node!(
+            ".foo { color: red; input { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; :focus { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; .bar { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; &:hover { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; + .bar { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; foo:hover { color: blue }; }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; @media screen { color: blue }; }",
+            rule_set(false)
+        );
 
         // Top level curly braces are allowed in declaration values if they are for a custom property.
         assert_parse_node!(".foo { --foo: {}; }", rule_set(false));
@@ -3307,13 +3666,31 @@ mod test_css_parser {
     #[test]
     fn nested_ruleset_2() {
         assert_parse_node!(".foo { .parent & { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; & > .bar, > .baz { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { & .bar & .baz & .qux { color: blue; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; :not(&) { color: blue; }; + .bar + & { color: green; } }", rule_set(false));
-        assert_parse_node!(".foo { color: red; & { color: blue; } && { color: green; } }", rule_set(false));
-        assert_parse_node!(".foo { & :is(.bar, &.baz) { color: red; } }", rule_set(false));
+        assert_parse_node!(
+            ".foo { color: red; & > .bar, > .baz { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { & .bar & .baz & .qux { color: blue; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; :not(&) { color: blue; }; + .bar + & { color: green; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { color: red; & { color: blue; } && { color: green; } }",
+            rule_set(false)
+        );
+        assert_parse_node!(
+            ".foo { & :is(.bar, &.baz) { color: red; } }",
+            rule_set(false)
+        );
         assert_parse_node!("figure { > figcaption { background: hsl(0 0% 0% / 50%); > p {  font-size: .9rem; } } }", rule_set(false));
-        assert_parse_node!("@layer base { html { & body { min-block-size: 100%; } } }", stylesheet_fall);
+        assert_parse_node!(
+            "@layer base { html { & body { min-block-size: 100%; } } }",
+            stylesheet_fall
+        );
     }
 
     #[test]
@@ -3379,7 +3756,10 @@ mod test_css_parser {
         assert_parse_node!(":nth-child(-n+3)", pseudo);
         assert_parse_node!(":nth-child(2n+1)", pseudo);
         assert_parse_node!(":nth-child(2n+1 of .foo)", pseudo);
-        assert_parse_node!(":nth-child(2n+1 of .foo > bar, :not(*) ~ [other=\"value\"])", pseudo);
+        assert_parse_node!(
+            ":nth-child(2n+1 of .foo > bar, :not(*) ~ [other=\"value\"])",
+            pseudo
+        );
         assert_parse_node!(":lang(it)", pseudo);
         assert_parse_node!(":not(.class)", pseudo);
         assert_parse_node!(":not(:disabled)", pseudo);
@@ -3406,17 +3786,29 @@ mod test_css_parser {
         assert_parse_node!("-vendor-property: 12", declaration(None));
         assert_parse_node!("font-size: 12px", declaration(None));
         assert_parse_node!("color : #888 /4", declaration(None));
-        assert_parse_node!("filter : progid:DXImageTransform.Microsoft.Shadow(color=#000000,direction=45)", declaration(None));
+        assert_parse_node!(
+            "filter : progid:DXImageTransform.Microsoft.Shadow(color=#000000,direction=45)",
+            declaration(None)
+        );
         assert_parse_node!("filter : progid: DXImageTransform.\nMicrosoft.\nDropShadow(\noffx=2, offy=1, color=#000000)", declaration(None));
         assert_parse_node!("font-size: 12px", declaration(None));
         assert_parse_node!("*background: #f00 /* IE 7 and below */", declaration(None));
         assert_parse_node!("_background: #f60 /* IE 6 and below */", declaration(None));
         assert_parse_node!("background-image: linear-gradient(to right, silver, white 50px, white calc(100% - 50px), silver)", declaration(None));
-        assert_parse_node!("grid-template-columns: [first nav-start] 150px [main-start] 1fr [last]", declaration(None));
-        assert_parse_node!("grid-template-columns: repeat(4, 10px [col-start] 250px [col-end]) 10px", declaration(None));
+        assert_parse_node!(
+            "grid-template-columns: [first nav-start] 150px [main-start] 1fr [last]",
+            declaration(None)
+        );
+        assert_parse_node!(
+            "grid-template-columns: repeat(4, 10px [col-start] 250px [col-end]) 10px",
+            declaration(None)
+        );
         assert_parse_node!("grid-template-columns: [a] auto [b] minmax(min-content, 1fr) [b c d] repeat(2, [e] 40px)", declaration(None));
         assert_parse_node!("grid-template: [foo] 10px / [bar] 10px", declaration(None));
-        assert_parse_node!("grid-template: 'left1 footer footer' 1fr [end] / [ini] 1fr [info-start] 2fr 1fr [end]", declaration(None));
+        assert_parse_node!(
+            "grid-template: 'left1 footer footer' 1fr [end] / [ini] 1fr [info-start] 2fr 1fr [end]",
+            declaration(None)
+        );
         assert_parse_node!("content: \"(\"counter(foo) \")\"", declaration(None));
         assert_parse_node!("content: 'Hello\\0A''world'", declaration(None));
     }
@@ -3440,14 +3832,19 @@ mod test_css_parser {
         assert_parse_node!("name(asd)", term);
         assert_parse_node!("calc(50% + 20px)", term);
         assert_parse_node!("calc(50% + (100%/3 - 2*1em - 2*1px))", term);
-        assert_no_node("%('repetitions: %S file: %S', 1 + 2, \"directory/file.less\")", |parser: &mut Parser| parser.parse_term()); // less syntax
-        assert_no_node("~\"ms:alwaysHasItsOwnSyntax.For.Stuff()\"", |parser: &mut Parser| parser.parse_term()); // less syntax
+        assert_no_node(
+            "%('repetitions: %S file: %S', 1 + 2, \"directory/file.less\")",
+            |parser: &mut Parser| parser.parse_term(),
+        ); // less syntax
+        assert_no_node(
+            "~\"ms:alwaysHasItsOwnSyntax.For.Stuff()\"",
+            |parser: &mut Parser| parser.parse_term(),
+        ); // less syntax
         assert_parse_node!("U+002?-0199", term);
         assert_no_node("U+002?-01??", |parser: &mut Parser| parser.parse_term());
         assert_no_node("U+00?0;", |parser: &mut Parser| parser.parse_term());
         assert_no_node("U+0XFF;", |parser: &mut Parser| parser.parse_term());
     }
-
 
     #[test]
     fn function() {
@@ -3493,7 +3890,6 @@ mod test_css_parser {
         assert_parse_node!(".faa42", class);
     }
 
-
     #[test]
     fn prio() {
         assert_parse_node!("!important", prio);
@@ -3522,8 +3918,15 @@ mod test_css_parser {
         assert_parse_node!("url(http://msft.com)", uri_literal);
         assert_parse_node!("url()", uri_literal);
         assert_parse_node!("url('http://msft.com\n)", uri_literal);
-        assert_parse_error!("url(\"http://msft.com\"", uri_literal, RightParenthesisExpected);
-        assert_parse_error!("url(http://msft.com')", uri_literal, RightParenthesisExpected);
+        assert_parse_error!(
+            "url(\"http://msft.com\"",
+            uri_literal,
+            RightParenthesisExpected
+        );
+        assert_parse_error!(
+            "url(http://msft.com')",
+            uri_literal,
+            RightParenthesisExpected
+        );
     }
-
 }

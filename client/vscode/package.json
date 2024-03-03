@@ -87,6 +87,31 @@
 						"description": "Rule names that should not be included in the unused rule names diagnostic.",
 						"default": [],
 						"scope": "window"
+					},
+					"CssLancer.semanticTokens": {
+						"title": "Semantic tokens mode",
+						"description": "Enable or disable semantic tokens (LSP syntax highlighting)",
+						"type": "string",
+						"default": "enable",
+						"enum": [
+							"enable",
+							"disable"
+						],
+						"enumDescriptions": [
+							"Use semantic tokens for syntax highlighting",
+							"Do not use semantic tokens for syntax highlighting"
+						]
+					},
+					"CssLancer.trace.server": {
+						"scope": "window",
+						"type": "string",
+						"enum": [
+							"off",
+							"messages",
+							"verbose"
+						],
+						"default": "off",
+						"description": "Traces the communication between VS Code and the language server."
 					}
 				}
 			}

@@ -1,4 +1,3 @@
-
 use crate::parser::css_nodes::CssNodeTree;
 use crate::parser::css_parser::Parser;
 use lsp_types::Url;
@@ -12,36 +11,43 @@ pub struct Source {
     // text: Prehashed<String>,
     // root: Prehashed<SyntaxNode>,
     pub tree: CssNodeTree,
-    pub lines: Vec<Line>,
+    lines: Vec<Line>,
 }
 
 impl std::fmt::Debug for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Source {{
+        write!(
+            f,
+            "Source {{
             url: {},
             version: {},
             text: ...,
             tree: ...,
             lines: ...,
-        }}", self.url, self.version)
+        }}",
+            self.url, self.version
+        )
     }
 }
 
-impl Source { 
+impl Source {
     // Create a new source file.
     pub fn new(url: Url, text: String, version: i32) -> Self {
         Self {
             url,
             version,
             lines: Line::lines(&text),
-            tree: Parser::new_with_text(text)
-                .into_stylesheet(),
+            tree: Parser::new_with_text(text).into_stylesheet(),
         }
     }
 
     /// Create a source file without a real id and path, usually for testing.
     pub fn detached(text: impl Into<String>) -> Self {
-        return Self::new(Url::parse("https://localhost/detached").unwrap(), text.into(), 0);
+        return Self::new(
+            Url::parse("https://localhost/detached").unwrap(),
+            text.into(),
+            0,
+        );
     }
 
     pub fn text(&self) -> &str {
@@ -57,14 +63,17 @@ impl Source {
     pub fn byte_to_utf16(&self, byte_idx: usize) -> Option<usize> {
         let line_idx = self.byte_to_line(byte_idx)?;
         let line = self.lines.get(line_idx)?;
-        let head = self.text().get(line.byte_idx..byte_idx)?;
-        Some(line.utf16_idx + len_utf16(head))
+        let head = self.text().get(line.utf8_offset..byte_idx)?;
+        Some(line.utf16_offset + len_utf16(head))
     }
 
     /// Return the index of the line that contains the given byte index.
     pub fn byte_to_line(&self, byte_idx: usize) -> Option<usize> {
         (byte_idx <= self.text().len()).then(|| {
-            match self.lines.binary_search_by_key(&byte_idx, |line| line.byte_idx) {
+            match self
+                .lines
+                .binary_search_by_key(&byte_idx, |line| line.utf8_offset)
+            {
                 Ok(i) => i,
                 Err(i) => i - 1,
             }
@@ -85,16 +94,19 @@ impl Source {
     /// Return the byte index at the UTF-16 code unit.
     pub fn utf16_to_byte(&self, utf16_idx: usize) -> Option<usize> {
         let line = self.lines.get(
-            match self.lines.binary_search_by_key(&utf16_idx, |line| line.utf16_idx) {
+            match self
+                .lines
+                .binary_search_by_key(&utf16_idx, |line| line.utf16_offset)
+            {
                 Ok(i) => i,
                 Err(i) => i - 1,
             },
         )?;
 
-        let mut k = line.utf16_idx;
-        for (i, c) in self.text()[line.byte_idx..].char_indices() {
+        let mut k = line.utf16_offset;
+        for (i, c) in self.text()[line.utf8_offset..].char_indices() {
             if k >= utf16_idx {
-                return Some(line.byte_idx + i);
+                return Some(line.utf8_offset + i);
             }
             k += c.len_utf16();
         }
@@ -104,7 +116,7 @@ impl Source {
 
     /// Return the byte position at which the given line starts.
     pub fn line_to_byte(&self, line_idx: usize) -> Option<usize> {
-        self.lines.get(line_idx).map(|line| line.byte_idx)
+        self.lines.get(line_idx).map(|line| line.utf8_offset)
     }
 
     /// Return the range which encloses the given line.
@@ -118,11 +130,7 @@ impl Source {
     ///
     /// The column defines the number of characters to go beyond the start of
     /// the line.
-    pub fn line_column_to_byte(
-        &self,
-        line_idx: usize,
-        column_idx: usize,
-    ) -> Option<usize> {
+    pub fn line_column_to_byte(&self, line_idx: usize, column_idx: usize) -> Option<usize> {
         let range = self.line_to_range(line_idx)?;
         let line = self.get(range.clone())?;
         let mut chars = line.chars();
@@ -165,8 +173,7 @@ impl Source {
             .take_while(|(x, y)| x == y)
             .count();
 
-        while !old.is_char_boundary(old.len() - suffix)
-            || !new.is_char_boundary(new.len() - suffix)
+        while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix)
         {
             suffix += 1;
         }
@@ -203,26 +210,28 @@ impl Source {
 
         // Incrementally reparse the replaced range.
         self.tree.reparse(replace.clone(), with.len());
-        return replace // TODO
+        return replace; // TODO
     }
-
 }
 
 /// Metadata about a line.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct Line {
-    /// The UTF-8 byte offset where the line starts.
-    byte_idx: usize,
-    /// The UTF-16 codepoint offset where the line starts.
-    utf16_idx: usize,
+    /// The UTF-8 codepoint byte offset where the line starts.
+    utf8_offset: usize,
+    /// The UTF-16 codepoint byte offset where the line starts.
+    utf16_offset: usize,
 }
 
 impl Line {
     /// Create a line vector.
     fn lines(text: &str) -> Vec<Line> {
-        std::iter::once(Line { byte_idx: 0, utf16_idx: 0 })
-            .chain(Line::lines_from(0, 0, text))
-            .collect()
+        std::iter::once(Line {
+            utf8_offset: 0,
+            utf16_offset: 0,
+        })
+        .chain(Line::lines_from(0, 0, text))
+        .collect()
     }
 
     /// Compute a line iterator from an offset.
@@ -231,35 +240,32 @@ impl Line {
         utf16_start_offset: usize,
         text: &str,
     ) -> impl Iterator<Item = Line> + '_ {
-        let mut byte_offset = byte_start_offset;
+        let mut utf8_offset = byte_start_offset;
         let mut utf16_offset = utf16_start_offset;
         let mut lines = Vec::new();
 
         text.char_indices().for_each(|(byt_off, ch)| {
-            byte_offset = byte_start_offset + byt_off;
-            utf16_offset += 1;
+            utf8_offset = byte_start_offset + byt_off;
+            utf16_offset += ch.len_utf16();
             if is_newline(ch) {
-                if ch == '\r' && text.get(byt_off+1..byt_off+2) == Some("\n") {
-                    // `/n` is one byte in Utf8
+                if ch == '\r' && text.get(byt_off + 1..byt_off + 2) == Some("\n") {
                     lines.push(Line {
-                        byte_idx: byte_offset + 1,
-                        utf16_idx: utf16_offset + 1,
+                        utf8_offset: utf8_offset + "\r\n".len(),
+                        utf16_offset: utf16_offset + '\r'.len_utf16() + '\n'.len_utf16(),
                     });
-                } else if ch == '\n' && text.get(byt_off-1..byt_off) == Some("\r") {
+                } else if ch == '\n' && text.get(byt_off - 1..byt_off) == Some("\r") {
                     // added on previous iteration
                 } else {
                     lines.push(Line {
-                        byte_idx: byte_offset,
-                        utf16_idx: utf16_offset,
+                        utf8_offset: utf8_offset + ch.len_utf8(),
+                        utf16_offset: utf16_offset + ch.len_utf8(),
                     });
                 }
             }
         });
-        return lines.into_iter()
+        return lines.into_iter();
     }
 }
-
-
 
 /// The number of code units this string would use if it was encoded in
 /// UTF16. This runs in linear time.
@@ -274,5 +280,5 @@ pub fn is_newline(c: char) -> bool {
         || c == '\r'         // carriage return
         || c == '\u{0085}'   // next line
         || c == '\u{2028}'   // line seperator
-        || c == '\u{2029}';  // paragraph seperator
+        || c == '\u{2029}'; // paragraph seperator
 }

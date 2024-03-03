@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO: remove
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -63,7 +65,7 @@ pub trait CompletionParticipant {
     fn on_css_property_value(context: PropertyValueCompletionContext)
     where
         Self: Sized;
-    fn on_css_URI_literal_value(context: URILiteralCompletionContext)
+    fn on_css_uri_literal_value(context: URILiteralCompletionContext)
     where
         Self: Sized;
     fn on_css_import_path(context: ImportPathCompletionContext)

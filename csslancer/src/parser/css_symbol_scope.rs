@@ -12,8 +12,8 @@ pub struct Scope {
 impl Scope {
     pub const fn new(offset: usize, length: usize) -> Self {
         return Scope {
-            offset: offset,
-            length: length,
+            offset,
+            length,
             symbols: Vec::new(),
         };
     }
@@ -34,7 +34,7 @@ impl Scope {
     }
 }
 
-struct ScopeTree(ego_tree::Tree<Scope>);
+pub struct ScopeTree(ego_tree::Tree<Scope>);
 
 impl ScopeTree {
     pub fn new() -> Self {
@@ -55,17 +55,17 @@ impl ScopeTree {
             if (scope.offset <= offset && scope.offset + scope.length > offset + length)
                 || scope.offset == offset && scope.length == length
             {
-                return Some(self.find_in_scope_id(node, offset, length));
+                return Some(Self::find_in_scope_id(node, offset, length));
             }
         }
         return None;
     }
 
-    pub fn find_scope_val(&self, node_id: NodeId, offset: usize, length: usize) -> Option<&Scope> {
-        return self
-            .find_scope(node_id, offset, length)
-            .and_then(|nr| Some(nr.value()));
-    }
+    // pub fn find_scope_val(&self, node_id: NodeId, offset: usize, length: usize) -> Option<&Scope> {
+    //     return self
+    //         .find_scope(node_id, offset, length)
+    //         .and_then(|nr| Some(nr.value()));
+    // }
 
     // pub fn find_scope_val_mut(&mut self, node_id: NodeId, offset: usize, length: usize) -> Option<&mut Scope> {
     //     return self.find_scope_mut(node_id, offset, length)
@@ -94,7 +94,7 @@ impl ScopeTree {
             .and_then(|nr| self.0.get_mut(nr));
     }
 
-    pub fn find_in_scope_id(&self, node: NodeRef<Scope>, offset: usize, length: usize) -> NodeId {
+    pub fn find_in_scope_id(node: NodeRef<Scope>, offset: usize, length: usize) -> NodeId {
         let end = offset + length;
         // find first scope child that has offset larger than end
         let idx = node
@@ -115,7 +115,7 @@ impl ScopeTree {
         let res_scope = res.value();
         if res_scope.offset <= offset && end <= res_scope.offset + res_scope.length {
             // res_scope encapsulates given argument offset, length
-            return self.find_in_scope_id(res, offset, length);
+            return Self::find_in_scope_id(res, offset, length);
         }
         return node.id();
     }
@@ -138,10 +138,10 @@ impl Symbol {
         node: CssNode,
     ) -> Self {
         return Symbol {
-            name: name,
-            value: value,
-            ref_type: ref_type,
-            node: node,
+            name,
+            value,
+            ref_type,
+            node,
         };
     }
 }
@@ -154,7 +154,7 @@ pub struct ScopeBuilder {
 impl ScopeBuilder {
     pub fn new(node_id: NodeId) -> Self {
         return ScopeBuilder {
-            node_id: node_id,
+            node_id,
             scope_tree: ScopeTree::new(),
         };
     }

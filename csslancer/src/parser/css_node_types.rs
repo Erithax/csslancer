@@ -1,3 +1,5 @@
+#![allow(clippy::single_match)]
+
 use crate::parser::css_nodes::*;
 use ego_tree::{NodeId, NodeRef};
 
@@ -196,6 +198,18 @@ pub enum BodyDeclarationType {
 #[derive(Debug, PartialEq)]
 pub struct RuleSet {
     pub selectors: NodeId,
+}
+impl CssNodeType {
+    pub fn unchecked_rule_set(&mut self) -> &mut RuleSet {
+        match self {
+            CssNodeType::_BodyDeclaration(ref mut b) => match b.body_decl_type {
+                BodyDeclarationType::RuleSet(ref mut r) => return r,
+                _ => {}
+            },
+            _ => {}
+        }
+        unreachable!()
+    }
 }
 // impl RuleSet {
 //     pub fn new(nodelist: NodeRef<CssNode>) -> Option<Self> {
@@ -439,11 +453,9 @@ pub struct Function {
 impl CssNodeType {
     pub fn unchecked_function(&mut self) -> &mut Function {
         match self {
-            CssNodeType::_Invocation(i) => {
-                match i.invocation_type {
-                    InvocationType::Function(ref mut f) => return f,
-                    _ => {}
-                }
+            CssNodeType::_Invocation(i) => match i.invocation_type {
+                InvocationType::Function(ref mut f) => return f,
+                _ => {}
             },
             _ => {}
         }
@@ -462,7 +474,7 @@ pub struct FunctionParameter {
 #[derive(Debug, PartialEq)]
 pub struct FunctionArgument {
     pub identifier: Option<NodeId>, // any, TODO:> SHOUDL BE IDENTIFIER?
-    pub value: NodeId,      // any
+    pub value: NodeId,              // any
 }
 impl CssNodeType {
     pub fn unchecked_function_argument(&mut self) -> &mut FunctionArgument {
@@ -531,8 +543,8 @@ impl CssNodeType {
 
 #[derive(Debug, PartialEq)]
 pub struct Term {
-    pub operator: Option<NodeId>,   // any
-    pub expression: NodeId, // any
+    pub operator: Option<NodeId>, // any
+    pub expression: NodeId,       // any
 }
 impl CssNodeType {
     pub fn unchecked_term(&mut self) -> &mut Term {
@@ -547,9 +559,9 @@ impl CssNodeType {
 #[derive(Debug, PartialEq)]
 pub struct AttributeSelector {
     pub namespace_prefix: Option<NodeId>, // any
-    pub identifier: NodeId,       // Identifier
-    pub operator: NodeId,         // Operator
-    pub value: NodeId,            // BinaryExpression
+    pub identifier: NodeId,               // Identifier
+    pub operator: NodeId,                 // Operator
+    pub value: NodeId,                    // BinaryExpression
 }
 impl CssNodeType {
     pub fn unchecked_attribute_selector(&mut self) -> &mut AttributeSelector {

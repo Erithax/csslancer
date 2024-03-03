@@ -2,20 +2,18 @@ use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{reload, Registry};
 
-use std::ffi::OsStr;
 use std::fmt::{self, Write};
-use std::path::Path;
 
+use console_subscriber;
 use tokio::runtime::Handle;
 use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Metadata, Subscriber};
+use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
-use console_subscriber;
-use tracing_chrome::ChromeLayerBuilder;
 
 use crate::services::CssLancerServer;
 
@@ -24,14 +22,19 @@ pub async fn logitgood(msg: &str) {
     tokio::time::sleep(tokio::time::Duration::from_nanos(100)).await;
 }
 
-pub fn tracing_init() -> (reload::Handle<Option<LspLayer>, Registry>, tracing_chrome::FlushGuard) {
+pub fn tracing_init() -> (
+    reload::Handle<Option<LspLayer>, Registry>,
+    tracing_chrome::FlushGuard,
+) {
     let (lsp_layer, lsp_layer_handle) = reload::Layer::new(None);
 
     let console_layer = console_subscriber::spawn();
 
-    let chrome_trace_file = std::fs::File::create(
-        format!("D:/CsslancerTrace__{}.json", chrono::DateTime::naive_local(&chrono::Local::now()).format("%Y-%m-%d__%H-%M-%S"))
-    ).expect("could not make csslancer trace file");
+    let chrome_trace_file = std::fs::File::create(format!(
+        "D:/CsslancerTrace__{}.json",
+        chrono::DateTime::naive_local(&chrono::Local::now()).format("%Y-%m-%d__%H-%M-%S")
+    ))
+    .expect("could not make csslancer trace file");
 
     let (chrome_layer, _guard) = ChromeLayerBuilder::new()
         .trace_style(tracing_chrome::TraceStyle::Threaded)
@@ -48,8 +51,7 @@ pub fn tracing_init() -> (reload::Handle<Option<LspLayer>, Registry>, tracing_ch
     (lsp_layer_handle, _guard)
 }
 
-pub fn tracing_shutdown() {
-}
+pub fn tracing_shutdown() {}
 
 impl CssLancerServer {
     pub fn tracing_init(&self) {
