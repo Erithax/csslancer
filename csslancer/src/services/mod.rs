@@ -1,7 +1,11 @@
 pub mod css_selection_range;
 pub mod css_validation;
 pub mod semantic_tokens;
+pub mod hover;
+pub mod selector_printing;
 
+use crate::css_language_types::HoverSettings;
+use crate::data::data_manager::CssDataManager;
 use crate::logging::LspLayer;
 use crate::workspace::source::Source;
 use crate::{
@@ -38,12 +42,16 @@ use crate::workspace::Workspace;
 
 use std::sync::{Arc, RwLock as SyncRwLock};
 
+use self::selector_printing::SelectorPrinting;
 use self::semantic_tokens::{get_semantic_tokens_options, SemanticTokenCache};
 
 pub struct CssLancerServer {
     pub client: Client,
     workspace: OnceLock<RwLock<Workspace>>,
     const_config: OnceLock<ConstConfig>,
+    client_capabilities: OnceLock<ClientCapabilities>,
+    client_supports_markdown: OnceLock<bool>,
+    css_data_manager: CssDataManager, // = SelectorPrinting too
     config: Arc<RwLock<Config>>,
     semantic_tokens_delta_cache: Arc<SyncRwLock<SemanticTokenCache>>,
     pub lsp_tracing_layer_handle: reload::Handle<Option<LspLayer>, Registry>,
@@ -57,6 +65,9 @@ impl CssLancerServer {
         return Self {
             workspace: Default::default(),
             const_config: Default::default(),
+            client_capabilities: Default::default(),
+            client_supports_markdown: Default::default(),
+            css_data_manager: CssDataManager::new(true, None),
             config: Default::default(),
             client,
             semantic_tokens_delta_cache: Arc::new(SyncRwLock::new(SemanticTokenCache::default())),
@@ -121,6 +132,10 @@ impl LanguageServer for CssLancerServer {
             .set(RwLock::new(Workspace::new()))
             .map_err(|_| ())
             .expect("workspace should not yet be initialized");
+
+        self.client_capabilities
+            .set(params.capabilities)
+            .expect("client capabilities should not yet be initialized");
 
         self.const_config
             .set(ConstConfig::from(&params))
@@ -304,8 +319,14 @@ impl LanguageServer for CssLancerServer {
         Err(Error::invalid_request())
     }
 
-    async fn hover(&self, _params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
-        Ok(None)
+    async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+        let url = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        self.get_hover(&url, position, &Some(HoverSettings{documentation: true, references: true})).await.map_err(|err| {
+            error!(%err, %url, "error getting hover");
+            jsonrpc::Error::internal_error()
+        })
     }
 
     async fn completion(

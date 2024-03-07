@@ -1,6 +1,7 @@
 #![allow(dead_code)] // TODO: remove
 
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -120,7 +121,7 @@ pub struct LanguageServiceOptions {
      * Provide data that could enhance the service's understanding of
      * CSS property / at-rule / pseudo-class / pseudo-element
      */
-    custom_data_providers: Vec<Box<dyn ICSSDataProvider>>,
+    custom_data_providers: Vec<Box<dyn ProvideCssData>>,
 
     /*
      * Abstract file system access away from the service.
@@ -134,6 +135,7 @@ pub struct LanguageServiceOptions {
     client_capabilities: ClientCapabilities,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub enum EntryStatus {
     Standard,
     Experimental,
@@ -144,45 +146,67 @@ pub enum EntryStatus {
 //
 
 pub struct Reference {
-    name: String,
-    url: String,
+    pub name: String,
+    pub url: String,
 }
 
+#[derive(Debug, Clone)]
 pub enum Content {
     String(String),
     Markup(MarkupContent),
 }
 
+impl Content {
+    pub fn value(&self) -> &str {
+        match self {
+            Self::String(s) => s,
+            Self::Markup(mc) => &mc.value,
+        }
+    }
+}
+
 pub struct PropertyData {
-    name: String,
-    description: Content,
-    browsers: Vec<String>,
-    restrictions: Vec<String>,
-    status: EntryStatus,
-    syntax: String,
-    values: Vec<ValueData>,
-    references: Vec<Reference>,
-    relevance: i64,
-    at_rule: String,
+    pub name: String,
+    pub description: Option<Content>,
+    pub browsers: Option<Vec<String>>,
+    pub restrictions: Vec<String>,
+    pub status: Option<EntryStatus>,
+    pub syntax: String,
+    pub values: Vec<ValueData>,
+    pub references: Option<Vec<Reference>>,
+    pub relevance: i64,
+    pub at_rule: String,
+}
+
+impl Hash for PropertyData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.name.into_bytes());
+    }
 }
 
 pub struct AtDirectiveData {
-    name: String,
-    description: Content,
-    browsers: Vec<String>,
-    status: EntryStatus,
-    references: Vec<Reference>,
+    pub name: String,
+    pub description: Option<Content>,
+    pub browsers: Option<Vec<String>>,
+    pub status: Option<EntryStatus>,
+    pub references: Option<Vec<Reference>>,
 }
 
-type PseudoClassData = AtDirectiveData;
-type PseudoElementData = AtDirectiveData;
-type ValueData = AtDirectiveData;
+impl Hash for AtDirectiveData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.name.into_bytes());
+    }
+}
 
-pub enum CSSDataVersion {
+pub type PseudoClassData = AtDirectiveData;
+pub type PseudoElementData = AtDirectiveData;
+pub type ValueData = AtDirectiveData;
+
+pub enum CssDataVersion {
     One,
     OneOne,
 }
-impl CSSDataVersion {
+impl CssDataVersion {
     pub fn get_num(&self) -> f32 {
         match self {
             Self::One => 1.0,
@@ -191,27 +215,19 @@ impl CSSDataVersion {
     }
 }
 
-pub struct CSSDataV1 {
-    version: CSSDataVersion,
+pub struct CssDataV1 {
+    version: CssDataVersion,
     properties: Vec<PropertyData>,
     at_directives: Vec<AtDirectiveData>,
     pseudo_classes: Vec<PseudoClassData>,
     pseudo_elements: Vec<PseudoElementData>,
 }
 
-pub trait ICSSDataProvider {
-    fn provide_properties() -> Vec<PropertyData>
-    where
-        Self: Sized;
-    fn provide_at_directive() -> Vec<AtDirectiveData>
-    where
-        Self: Sized;
-    fn provide_pseudo_classes() -> Vec<PseudoClassData>
-    where
-        Self: Sized;
-    fn provide_pseudo_elements() -> Vec<PseudoElementData>
-    where
-        Self: Sized;
+pub trait ProvideCssData {
+    fn provide_properties(&self) -> Vec<PropertyData>;
+    fn provide_at_directives(&self) -> Vec<AtDirectiveData>;
+    fn provide_pseudo_classes(&self) -> Vec<PseudoClassData>;
+    fn provide_pseudo_elements(&self) -> Vec<PseudoElementData>;
 }
 
 //

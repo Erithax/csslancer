@@ -1,5 +1,5 @@
 use ego_tree::{NodeId, NodeRef, Tree};
-use std::{any::Any, collections::HashMap, fmt::Debug, ops::Range};
+use std::{any::Any, collections::{HashMap, VecDeque}, fmt::Debug, ops::Range};
 
 use crate::parser::css_node_types::*;
 
@@ -158,12 +158,14 @@ impl IVisitor for ParseErrorCollector {
 // NodeRef<CssNode>
 // ================
 
-pub trait ChildByOffsetFinder<'a> {
+pub trait NodeRefExt<'a> {
     fn find_first_child_before_offset(self, offset: usize) -> Option<NodeRef<'a, CssNode>>;
     fn find_child_at_offset(self, offset: usize, go_deep: bool) -> Option<NodeRef<'a, CssNode>>;
+    fn get_node_path(self, offset: usize) -> Vec<NodeId>;
+    fn get_node_at_offset(self, offset: usize,) -> Option<NodeRef<'a, CssNode>>;
 }
 
-impl<'a> ChildByOffsetFinder<'a> for NodeRef<'a, CssNode> {
+impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
     fn find_first_child_before_offset(self, offset: usize) -> Option<NodeRef<'a, CssNode>> {
         if !self.has_children() {
             return None;
@@ -180,6 +182,47 @@ impl<'a> ChildByOffsetFinder<'a> for NodeRef<'a, CssNode> {
             return Some(current);
         }
         return current.find_child_at_offset(offset, true).or(Some(current));
+    }
+
+    fn get_node_path(self, offset: usize) -> Vec<NodeId> {
+        let mut candidate = self.get_node_at_offset(offset);
+        let mut path = VecDeque::new();
+        while let Some(cand) = candidate {
+            path.push_front(cand.id());
+            candidate = cand.parent();
+        }
+        return path.into();
+    }
+
+    fn get_node_at_offset(self, offset: usize,) -> Option<NodeRef<'a, CssNode>> {
+        let node_val = self.value();
+        let candidate: Option<(NodeId, usize)> = None;
+        if offset < node_val.offset || offset > node_val.end() {
+            return None;
+        }
+
+        // Find the shortest node at the position
+        accept_mut(self, move |node: NodeRef<CssNode>| {
+            if node_val.offset == usize::MAX && node_val.length == usize::MAX {
+                return true;
+            }
+            if node_val.offset <= offset && node_val.end() >= offset {
+                match candidate {
+                    None => candidate = Some((node.id(), node.value().length)),
+                    Some(cand) => {
+                        if node_val.length <= cand.1 {
+                            candidate = Some((node.id(), node.value().length));
+                        }
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
+        if let Some(cand) = candidate {
+            return self.tree().get(cand.0);
+        }
+        return None;
     }
 }
 
@@ -218,20 +261,7 @@ impl<'a> ChildByOffsetFinder<'a> for NodeRef<'a, CssNode> {
 //     return None;
 // }
 
-// pub fn get_node_path<'a>(node: NodeRef<'a, CssNode>, offset: usize) -> Vec<&'a CssNode> {
-//     let mut candidate = get_node_at_offset(node, offset);
-//     let mut path: VecDeque<&CssNode> = VecDeque::new();
-//     loop {
-//         match candidate {
-//             None => break,
-//             Some(cand) => {
-//                 path.push_front(cand.value());
-//                 candidate = cand.parent();
-//             }
-//         }
-//     }
-//     return path.into();
-// }
+
 
 pub fn get_parent_declaration(node: NodeRef<CssNode>) -> Option<&CssNode> {
     let node_id_dud = node.id();
@@ -287,7 +317,7 @@ where
     }
 }
 
-pub fn accept_mut(node: NodeRef<CssNode>, visitor_fun: fn(NodeRef<CssNode>) -> bool) {
+pub fn accept_mut<F>(node: NodeRef<CssNode>, mut visitor_fun: F) where F: FnMut(NodeRef<CssNode>) -> bool {
     if visitor_fun(node) {
         for child in node.children() {
             accept_mut(child, visitor_fun);

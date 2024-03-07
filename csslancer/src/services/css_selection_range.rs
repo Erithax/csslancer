@@ -4,7 +4,7 @@ use lsp_types::SelectionRange;
 
 use crate::{
     interop::{csslancer_to_lsp, lsp_to_csslancer, LspPosition, LspPositionEncoding},
-    parser::{css_node_types::CssNodeType, css_nodes::ChildByOffsetFinder},
+    parser::{css_node_types::CssNodeType, css_nodes::NodeRefExt},
     workspace::source::Source,
 };
 

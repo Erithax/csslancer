@@ -307,9 +307,21 @@ pub struct MixinContentDeclaration {
 
 #[derive(Debug, PartialEq)]
 pub struct MixinDeclaration {
-    identifier: NodeId, // Identifier
-    parameters: NodeId, // Nodelist
-    guard: NodeId,      // LessGuard
+    pub identifier: NodeId, // Identifier
+    pub parameters: NodeId, // Nodelist
+    pub guard: NodeId,      // LessGuard
+}
+
+impl CssNodeType {
+    pub fn unchecked_mixin_declaration(&mut self) -> &mut MixinDeclaration {
+        use CssNodeType::*;
+        if let CssNodeType::_BodyDeclaration(BodyDeclaration { 
+            declarations: _, 
+            body_decl_type: BodyDeclarationType::MixinDeclaration(m)}) = self {
+            return m
+        }
+        unreachable!();
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -357,6 +369,17 @@ impl CssNodeType {
         match self {
             CssNodeType::_AbstractDeclaration(a) => match a.abstract_decl_type {
                 AbstractDeclarationType::Declaration(ref mut d) => return d,
+                _ => {}
+            },
+            _ => {}
+        }
+        unreachable!();
+    }
+
+    pub fn unchecked_abst_decl_decl_decl_inner_ref(&self) -> &Declaration {
+        match self {
+            CssNodeType::_AbstractDeclaration(a) => match a.abstract_decl_type {
+                AbstractDeclarationType::Declaration(ref d) => return d,
                 _ => {}
             },
             _ => {}

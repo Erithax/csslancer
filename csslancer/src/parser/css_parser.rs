@@ -2,7 +2,7 @@ use ego_tree::{NodeId, NodeMut, NodeRef};
 use regex::Regex;
 use regex::RegexBuilder;
 
-use crate::facts;
+use crate::data::facts;
 use crate::parser::css_error::*;
 use crate::parser::css_node_types::*;
 use crate::parser::css_nodes::*;
@@ -450,6 +450,13 @@ impl Parser {
             return Some(&self.tree);
         }
         return None;
+    }
+
+    pub fn parse_node_by_fn<F: FnMut(&mut Self) -> Option<NodeId>>(
+        &mut self,
+        mut f: F,
+    ) -> Option<NodeId> {
+        return f(self)
     }
 
     pub fn parse_fn<F>(input: String, mut f: F) -> Option<CssNodeTree>

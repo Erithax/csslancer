@@ -5,7 +5,7 @@ mod config;
 mod css_language_service;
 mod css_language_types;
 mod ext;
-pub mod facts;
+pub mod data;
 mod interop;
 pub mod logging;
 pub mod parser;
