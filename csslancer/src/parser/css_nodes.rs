@@ -15,7 +15,7 @@ pub trait DataT: Any + std::fmt::Debug + Sync + Send {
         Self: Sized;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CssNode {
     pub offset: usize,
     pub length: usize,
@@ -123,8 +123,17 @@ pub struct Marker {
     pub length: usize,
 }
 
+/// DFS
 pub trait IVisitor {
+    /// Returns `true` to visit children, `false` to stop visitation.
     fn visit_node(&mut self, node: NodeRef<CssNode>) -> bool;
+    fn visit(&mut self, node: NodeRef<CssNode>) {
+        if self.visit_node(node) {
+            for child in node.children() {
+                self.visit(child);
+            }
+        }
+    }
 }
 
 pub struct ParseErrorCollector {
@@ -201,25 +210,44 @@ impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
             return None;
         }
 
-        // Find the shortest node at the position
-        accept_mut(self, move |node: NodeRef<CssNode>| {
-            if node_val.offset == usize::MAX && node_val.length == usize::MAX {
-                return true;
-            }
-            if node_val.offset <= offset && node_val.end() >= offset {
-                match candidate {
-                    None => candidate = Some((node.id(), node.value().length)),
-                    Some(cand) => {
-                        if node_val.length <= cand.1 {
-                            candidate = Some((node.id(), node.value().length));
+        struct CandiateVisitor {
+            candidate: Option<(NodeId, usize)>, // Option<(NodeId, length)>; mut during visit
+            offset: usize, // const during visit
+        }
+
+        impl IVisitor for CandiateVisitor {
+            fn visit_node(&mut self, node: NodeRef<CssNode>) -> bool {
+                let self_offset = self.offset;
+                let node_val = node.value();
+                if node_val.offset == usize::MAX || node_val.length == usize::MAX {
+                    return true;
+                }
+                if node_val.offset <= self_offset && self_offset <= node_val.end() {
+                    match self.candidate {
+                        None => self.candidate = Some((node.id(), node.value().length)),
+                        Some(cand) => {
+                            if node_val.length <= cand.1 {
+                                self.candidate = Some((node.id(), node.value().length));
+                            }
                         }
                     }
+                    return true;
                 }
-                return true;
+                return false;
+                
             }
-            return false;
-        });
-        if let Some(cand) = candidate {
+        }
+
+        let mut visitor = CandiateVisitor {
+            candidate,
+            offset,
+        };
+
+        visitor.visit(self);
+
+        // Find the shortest node at the position
+
+        if let Some(cand) = visitor.candidate {
             return self.tree().get(cand.0);
         }
         return None;
@@ -317,13 +345,13 @@ where
     }
 }
 
-pub fn accept_mut<F>(node: NodeRef<CssNode>, mut visitor_fun: F) where F: FnMut(NodeRef<CssNode>) -> bool {
-    if visitor_fun(node) {
-        for child in node.children() {
-            accept_mut(child, visitor_fun);
-        }
-    }
-}
+// pub fn accept_mut<F>(node: NodeRef<CssNode>, mut visitor_fun: &FnMut(NodeRef<CssNode>) -> bool) {
+//     if visitor_fun(node) {
+//         for child in node.children() {
+//             accept_mut(child, |node: NodeRef<CssNode>| visitor_fun(node));
+//         }
+//     }
+// }
 
 pub fn is_erroneous_recursive(node: NodeRef<CssNode>) -> bool {
     return node.value().is_erroneous() || node.children().any(|ch| is_erroneous_recursive(ch));

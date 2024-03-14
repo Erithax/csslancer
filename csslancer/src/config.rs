@@ -1,9 +1,8 @@
 use anyhow::bail;
 use futures::future::BoxFuture;
-use itertools::Itertools;
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use tower_lsp::lsp_types::{self, ConfigurationItem, InitializeParams, PositionEncodingKind};
+use tower_lsp::lsp_types::{self, InitializeParams, PositionEncodingKind};
 
 use crate::ext::InitializeParamsExt;
 
@@ -65,7 +64,7 @@ pub enum SemanticTokensMode {
 
 pub type Listener<T> = Box<dyn FnMut(&T) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
 
-const CONFIG_ITEMS: &[&str] = &["semanticTokens"];
+//const CONFIG_ITEMS: &[&str] = &["semanticTokens"];
 
 #[derive(Default)]
 pub struct Config {
@@ -79,31 +78,31 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn get_items() -> Vec<ConfigurationItem> {
-        let sections = CONFIG_ITEMS
-            .iter()
-            .flat_map(|item| [format!("csslancer.{item}"), item.to_string()]);
+    // pub fn get_items() -> Vec<ConfigurationItem> {
+    //     let sections = CONFIG_ITEMS
+    //         .iter()
+    //         .flat_map(|item| [format!("csslancer.{item}"), item.to_string()]);
 
-        sections
-            .map(|section| ConfigurationItem {
-                section: Some(section),
-                ..Default::default()
-            })
-            .collect()
-    }
+    //     sections
+    //         .map(|section| ConfigurationItem {
+    //             section: Some(section),
+    //             ..Default::default()
+    //         })
+    //         .collect()
+    // }
 
-    pub fn values_to_map(values: Vec<Value>) -> Map<String, Value> {
-        let unpaired_values = values
-            .into_iter()
-            .tuples()
-            .map(|(a, b)| if !a.is_null() { a } else { b });
+    // pub fn values_to_map(values: Vec<Value>) -> Map<String, Value> {
+    //     let unpaired_values = values
+    //         .into_iter()
+    //         .tuples()
+    //         .map(|(a, b)| if !a.is_null() { a } else { b });
 
-        CONFIG_ITEMS
-            .iter()
-            .map(|item| item.to_string())
-            .zip(unpaired_values)
-            .collect()
-    }
+    //     CONFIG_ITEMS
+    //         .iter()
+    //         .map(|item| item.to_string())
+    //         .zip(unpaired_values)
+    //         .collect()
+    // }
 
     pub fn listen_semantic_tokens(&mut self, listener: Listener<SemanticTokensMode>) {
         self.semantic_tokens_listeners.push(listener);

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use ego_tree::{NodeId, Tree};
 use tower_lsp::lsp_types::{DocumentFormattingClientCapabilities, Url};
 use tower_lsp::lsp_types::{
     InitializeParams, Position, PositionEncodingKind, SemanticTokensClientCapabilities,
@@ -185,6 +186,23 @@ pub struct PositionDelta {
     pub delta_line: u32,
     pub delta_start: u32,
 }
+
+pub trait TreeAttach {
+    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId);
+}
+
+impl<T: Default> TreeAttach for Tree<T> {
+    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId) {
+        let mut self_node = self.get_mut(self_at).unwrap();
+        let new_id = self_node.append(std::mem::take(other.get_mut(other_at).unwrap().value())).id();
+        let ch_ids: Vec<NodeId> = other.root().children().map(|ch| ch.id()).collect();
+
+        for ch_id in ch_ids {
+            self.attach_tree(other, new_id, ch_id);
+        }
+    }
+}
+
 
 //pub trait UrlExt {
 /// Joins the path to the URI, treating the URI as if it was the root directory. Returns `Err`

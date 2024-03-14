@@ -3,7 +3,7 @@
 
 mod config;
 mod css_language_service;
-mod css_language_types;
+pub mod css_language_types;
 mod ext;
 pub mod data;
 mod interop;

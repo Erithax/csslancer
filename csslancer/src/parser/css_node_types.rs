@@ -21,8 +21,9 @@ pub enum ReferenceType {
 /// Nodes for the css 2.1 specification. See for reference:
 /// http://www.w3.org/TR/CSS21/grammar.html#grammar
 /// </summary>
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub enum CssNodeType {
+    #[default]
     ROOT,
     _BodyDeclaration(BodyDeclaration),
     _AbstractDeclaration(AbstractDeclaration),
@@ -210,6 +211,17 @@ impl CssNodeType {
         }
         unreachable!()
     }
+
+    pub fn unchecked_rule_set_ref(&self) -> &RuleSet {
+        match self {
+            CssNodeType::_BodyDeclaration(ref b) => match b.body_decl_type {
+                BodyDeclarationType::RuleSet(ref r) => return r,
+                _ => {}
+            },
+            _ => {}
+        }
+        unreachable!()
+    }
 }
 // impl RuleSet {
 //     pub fn new(nodelist: NodeRef<CssNode>) -> Option<Self> {
@@ -314,7 +326,14 @@ pub struct MixinDeclaration {
 
 impl CssNodeType {
     pub fn unchecked_mixin_declaration(&mut self) -> &mut MixinDeclaration {
-        use CssNodeType::*;
+        if let CssNodeType::_BodyDeclaration(BodyDeclaration { 
+            declarations: _, 
+            body_decl_type: BodyDeclarationType::MixinDeclaration(m)}) = self {
+            return m
+        }
+        unreachable!();
+    }
+    pub fn unchecked_mixin_declaration_ref(&self) -> &MixinDeclaration {
         if let CssNodeType::_BodyDeclaration(BodyDeclaration { 
             declarations: _, 
             body_decl_type: BodyDeclarationType::MixinDeclaration(m)}) = self {

@@ -3,7 +3,7 @@ use ego_tree::{NodeId, NodeRef, Tree};
 use lsp_types::{LanguageString, MarkedString};
 use regex::{Regex, RegexBuilder};
 
-use crate::parser::{css_node_types::{BodyDeclaration, BodyDeclarationType, CssNodeType}, css_nodes::{CssNode, CssNodeTree}, css_scanner::Scanner};
+use crate::{ext::TreeAttach, parser::{css_node_types::{BodyDeclaration, BodyDeclarationType, CssNodeType}, css_nodes::{CssNode, CssNodeTree}, css_scanner::Scanner}};
 use crate::data::data_manager::CssDataManager;
 
 use super::hover::FlagOpts;
@@ -32,30 +32,41 @@ impl Element {
         return None
     }
 
-    pub fn get_value(&self, name: &str) -> Option<String> {
-        for attribute in self.attributes {
+    // pub fn get_value(&self, name: &str) -> Option<String> {
+    //     for attribute in self.attributes.iter() {
+    //         if attribute.name == name {
+    //             return Some(attribute.value.clone())
+    //         }
+    //     }
+    //     return None
+    // }
+
+    pub fn get_value_ref(&self, name: &str) -> Option<&str> {
+        for attribute in self.attributes.iter() {
             if attribute.name == name {
-                return Some(attribute.value)
+                return Some(&attribute.value)
             }
         }
         return None
     }
 
     pub fn append(&mut self, text: &str) {
-        if let Some(last) = self.attributes.last() {
+        if let Some(last) = self.attributes.last_mut() {
             last.value += text;
         }
     }
 
     pub fn prepend(&mut self, text: String) {
-        if let Some(first) = self.attributes.first() {
+        if let Some(first) = self.attributes.first_mut() {
             first.value = text + &first.value;
         }
     }
 
     pub fn add_attr(&mut self, attr: Attribute) {
         if let Some(attr) = self.get_attribute_mut(&attr.name) {
-            attr.value = attr.value + " " + &attr.value;
+            let b = attr.value.clone();
+            attr.value += " ";
+            attr.value += &b;
         } else {
             self.attributes.push(attr);
         }
@@ -118,32 +129,33 @@ impl MarkedStringPrinter {
 
     fn do_print_ele(&mut self, node: NodeRef<Element>, ident: usize) {
         let element = node.value();
-        let name = element.get_value("name");
+        let name = element.get_value_ref("name");
 
         // special case: a simple label
         
 
-        let mut content = vec!["<"];
+        let mut content = "<".to_string();
 
         // element name
         if let Some(n) = name {
-            content.push(&n);
+            content += &n;
         } else {
-            content.push("element");
+            content += "element";
         }
 
+
         // attributes
-        for attr in element.attributes {
+        for attr in element.attributes.iter() {
             if attr.name != "name" {
-                content.push(" ");
-                content.push(&attr.name);
-                content.push("=");
-                content.push(&Quotes::ensure(attr.value, self.quote))
+                content += " ";
+                content += &attr.name;
+                content += "=";
+                Quotes::ensure(&mut content, &attr.value, &self.quote);
             }
         }
 
-        content.push(">");
-        self.write_line(ident, &content.join(""));
+        content += ">";
+        self.write_line(ident, &content);
 
     }
 
@@ -151,14 +163,17 @@ impl MarkedStringPrinter {
 
 struct Quotes;
 impl Quotes {
-    pub fn ensure(value: String, which: String) -> String {
-        return which + &Self::remove(value) + &which;
+    pub fn ensure(content: &mut String, value: &str, which: &str) {
+        content.push_str(which);
+        content.push_str(&Self::remove(value));
+        content.push_str(which);
     }
 
-    pub fn remove(value: String) -> String {
-        let mut mat = Regex::new("^['\"](.*)['\"]$").unwrap().find_iter(&value);
-        if let Some(m) = mat.next() {
-            return mat.next().expect("Only one match, vscode-css-languageservice is coded like this.").as_str().to_owned();
+    pub fn remove(value: &str) -> &str {
+        let reg = Regex::new("^['\"](.*)['\"]$").unwrap();
+        let mut mat = reg.find_iter(&value);
+        if let Some(_) = mat.next() {
+            return mat.next().expect("Only one match, vscode-css-languageservice is coded like this.").as_str();
         }
         return value;
     }
@@ -193,18 +208,18 @@ impl std::ops::AddAssign for Specificity {
 }
 
 // clones node and all ancestors
-pub fn clone_to_root(ele_tree: Tree<Element>, mut node_id: NodeId) -> Tree<Element> {
+fn clone_to_root(ele_tree: &Tree<Element>, node_id: NodeId) -> Tree<Element> {
     let mut res = Tree::new(ele_tree.root().value().clone());
     let root_id = res.root().id();
 
-    let mut curr_orig_node = node_id;
     let mut curr_node = res.orphan(ele_tree.get(node_id).unwrap().value().clone()).id();
 
     while let Some(par) = res.get(curr_node).unwrap().parent() {
         if par.id() == root_id {break}
-        let mut next = res.orphan(par.value().clone());
-        next.append_id(curr_node);
+        let par_clone = par.value().clone();
         curr_node = par.id();
+        let mut next = res.orphan(par_clone);
+        next.append_id(curr_node);
     }
 
     res.root_mut().append_id(curr_node);
@@ -212,7 +227,7 @@ pub fn clone_to_root(ele_tree: Tree<Element>, mut node_id: NodeId) -> Tree<Eleme
 }
 
 // returns detached stem of cloned nodes
-pub fn clone_to_root_in_tree(ele_tree: &mut Tree<Element>, mut node_id: NodeId) -> NodeId {
+fn clone_to_root_in_tree(ele_tree: &mut Tree<Element>, node_id: NodeId) -> NodeId {
     let root_id = ele_tree.root().id();
 
     let mut curr_orig_node_id = node_id;
@@ -220,19 +235,18 @@ pub fn clone_to_root_in_tree(ele_tree: &mut Tree<Element>, mut node_id: NodeId) 
 
     while let Some(par) = ele_tree.get(curr_orig_node_id).unwrap().parent() {
         if par.id() == root_id {break}
+        curr_orig_node_id = par.id();
         let mut next: ego_tree::NodeMut<'_, Element> = ele_tree.orphan(par.value().clone());
         next.append_id(curr_node_id);
         curr_node_id = next.id();
-        curr_orig_node_id = par.id();
     }
 
     return curr_node_id
 }
 
-pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Element>>, parent_element: Option<NodeId>) -> (Tree<Element>, NodeId) {
+fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<&Tree<Element>>, parent_element: Option<NodeId>) -> Tree<Element> {
     assert!(!ele_tree.is_none() || parent_element.is_none());
     let node = tree.get(node_id).unwrap();
-    
     
     let mut res_tree = Tree::new(Element {
         attributes: Vec::new(),
@@ -244,19 +258,13 @@ pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Ele
             res_tree.get_mut(res).unwrap().value()
         };
     }
-
-    macro_rules! res_val_ref {
-        () => {
-            res_tree.get(res).unwrap().value()
-        };
-    }
     
     for child in node.children() {
         use CssNodeType::*;
-        match child.value().node_type {
+        match &child.value().node_type {
             SelectorCombinator => {
-                if let (Some(ele_tree), Some(parent_element)) = (ele_tree, parent_element) {
-                    let mut segments: Vec<&str> = tree.get_text(node.id()).split("&").collect();
+                if let (Some(ele_tree), Some(parent_element)) = (&ele_tree, parent_element) {
+                    let segments: Vec<&str> = tree.get_text(node.id()).split("&").collect();
                     assert!(segments.len() != 1);
                     // if segments.len() == 1 {
                     //     // should not happen
@@ -265,7 +273,7 @@ pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Ele
                     // }
                     res_tree = clone_to_root(ele_tree, parent_element);
                     if let Some(fir) = segments.first() {
-                        let root = res_tree.root_mut().value().prepend(fir.to_owned().to_owned());
+                        res_tree.root_mut().value().prepend(fir.to_owned().to_owned());
                     }
                     for (i, seg) in segments.into_iter().skip(1).enumerate() {
                         if i > 0 {
@@ -277,12 +285,11 @@ pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Ele
                     }
                 };
             },
-            SelectorPlaceHolder => {
+            SelectorPlaceholder => {
                 if tree.get_text(child.id()) == "@at-root" {
-                    return todo!()
+                    todo!()
                 }
             },
-            // fall-through
             ElementNameSelector => {
                 let text = tree.get_text(child.id());
                 res_tree.get_mut(res).unwrap().value().add_attrib("name", if text == "*" {"element".to_owned()} else {unescape(text)});
@@ -293,8 +300,11 @@ pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Ele
             IdentifierSelector => {
                 res_val_mut!().add_attrib("id", unescape(&tree.get_text(child.id())[1..]));
             },
-            MixinDeclaration => {
-                let name = tree.get_text(child.value().node_type.unchecked_mixin_declaration().identifier);
+            _BodyDeclaration(BodyDeclaration {
+                declarations: _,
+                body_decl_type: BodyDeclarationType::MixinDeclaration(_)
+            }) => {
+                let name = tree.get_text(child.value().node_type.unchecked_mixin_declaration_ref().identifier);
                 res_val_mut!().add_attrib("class", name.to_owned());
             },
             PseudoSelector => {
@@ -306,21 +316,19 @@ pub fn to_element(tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<Tree<Ele
                 let expression = tree.get_text(selector.value);
                 let operator = tree.get_text(selector.operator);
                 let value = match unescape(operator).as_str() {
-                    "|=" => format!("{}-\u{2026}", Quotes::remove(unescape(expression))), // exactly or followed by -words
-                    "^=" => format!("{}\u{2026}", Quotes::remove(unescape(expression))), // prefix
-                    "$=" => format!("\u{2026}{}", Quotes::remove(unescape(expression))), // suffix
-                    "~=" => format!("\u{2026} {} \u{2026}", Quotes::remove(unescape(expression))), // one of a list of words
-                    "*=" => format!("\u{2026}{}\u{2026}", Quotes::remove(unescape(expression))), // substring
-                    _ => Quotes::remove(unescape(expression))
+                    "|=" => format!("{}-\u{2026}", Quotes::remove(&unescape(expression))), // exactly or followed by -words
+                    "^=" => format!("{}\u{2026}", Quotes::remove(&unescape(expression))), // prefix
+                    "$=" => format!("\u{2026}{}", Quotes::remove(&unescape(expression))), // suffix
+                    "~=" => format!("\u{2026} {} \u{2026}", Quotes::remove(&unescape(expression))), // one of a list of words
+                    "*=" => format!("\u{2026}{}\u{2026}", Quotes::remove(&unescape(expression))), // substring
+                    _ => Quotes::remove(&unescape(expression)).to_owned()
                 };
                 res_val_mut!().add_attrib(&unescape(identifier), value);
-            }
+            },
+            _ => {}
         }
     }
-
-    return (res_tree, res_tree.root().id())
-
-
+    return res_tree
 }
 
 fn unescape(content: &str) -> String {
@@ -342,21 +350,24 @@ impl SelectorPrinting {
         let Some(ele_tree) = ele_tree else {
             return Vec::new();
         };
-        let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, ele_tree.root().id(), flag_opts);
+        let root = ele_tree.root().id();
+        let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, root, flag_opts);
         marked_strings.push(self.selector_to_specificity_marked_string(node_tree, node_id));
         return marked_strings;
     }
 
     pub fn simple_selector_to_marked_string(&self, node_tree: &CssNodeTree, node_id: NodeId, flag_opts: Option<FlagOpts>) -> Vec<MarkedString> {
         assert!(node_tree.get(node_id).unwrap().value().node_type.same_node_type(&CssNodeType::SimpleSelector));
-        let (ele_tree, ele) = to_element(node_tree, node_id, None, None);
-        let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, ele, flag_opts);
+        let ele_tree = to_element(node_tree, node_id, None, None);
+        let root = ele_tree.root().id();
+        let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, root, flag_opts);
         marked_strings.push(self.selector_to_specificity_marked_string(node_tree, node_id));
         return marked_strings;
     }
 
     pub fn is_pseudo_element_identifier(&self, text: &str) -> bool {
-        let mut mat = Regex::new("^::?([\\w-]+)").unwrap().find_iter(text);
+        let reg = Regex::new("^::?([\\w-]+)").unwrap();
+        let mut mat = reg.find_iter(text);
         if mat.next().is_none() {
             return false;
         }
@@ -478,14 +489,16 @@ impl SelectorPrinting {
                             let mut complex_selector_list_nodes = Vec::new();
                             let complex_selector_text = &pseudo_selector_text[second_token.offset + 2..];
                             let complex_selector_array = complex_selector_text.split(",");
-                            for selector in complex_selector_array {
-                                // TODO: attach tree
-                                if let Some(node) = parser.parse_node_by_fn(|p: &mut crate::parser::css_parser::Parser| p.parse_selector(false)) {
-                                    complex_selector_list_nodes.push(node_tree.get(node).unwrap());
+                            for _ in complex_selector_array {
+                                if let Some(_) = parser.parse_node_by_fn(|p: &mut crate::parser::css_parser::Parser| p.parse_selector(false)) {
+                                    complex_selector_list_nodes.push(parser.take_tree());
                                 }
                             }
 
-                            specificity += self.calculate_most_specific_list_item(node_tree, complex_selector_list_nodes);
+                            specificity += self.calculate_most_specific_list_item(
+                                node_tree, 
+                                complex_selector_list_nodes.iter().map(|t| t.0.root()).collect()
+                            );
                             continue
                         }
                         continue
@@ -514,8 +527,8 @@ struct SelectorElementBuilder<'a> {
     element: NodeId,
 }
 
-impl SelectorElementBuilder<'_> {
-    pub fn new(node_tree: &CssNodeTree, ele_tree: &mut Tree<Element>, element: NodeId) -> Self {
+impl<'a> SelectorElementBuilder<'a> {
+    pub fn new(node_tree: &'a CssNodeTree, ele_tree: &'a mut Tree<Element>, element: NodeId) -> SelectorElementBuilder<'a> {
         return Self {
             node_tree,
             ele_tree,
@@ -574,10 +587,11 @@ impl SelectorElementBuilder<'_> {
                     }
                 }
 
-                let self_element = to_element(self.node_tree, selector_child.id(), Some(*self.ele_tree), parent_element);
-                let root = self_element.0.root();
+                let mut self_element = to_element(self.node_tree, selector_child.id(), Some(self.ele_tree), parent_element);
+                let root = self_element.root().id();
 
-                // TODO: attach tree
+                self.ele_tree.attach_tree(&mut self_element, self.element, root);
+                self.element = root;
             }
             
             match selector_child.value().node_type {
@@ -594,7 +608,7 @@ impl SelectorElementBuilder<'_> {
 }
 
 fn is_new_selector_context(node: &CssNode) -> bool {
-    return match node.node_type {
+    return match &node.node_type {
         CssNodeType::_BodyDeclaration(b) => {
             match b.body_decl_type {
                 BodyDeclarationType::MixinDeclaration(..) => true,
@@ -634,7 +648,7 @@ fn selector_to_element(node_tree: &CssNodeTree, node_id: NodeId) -> Option<Tree<
         while let Some(par) = parent {
             if is_new_selector_context(par.value()) {break}
             if par.value().node_type.same_node_type(&rule_set_dummy) {
-                if node_tree.get_text(par.value().node_type.unchecked_rule_set().selectors) == "@at-root" {
+                if node_tree.get_text(par.value().node_type.unchecked_rule_set_ref().selectors) == "@at-root" {
                     break;
                 }
                 parent_rule_sets.push(par.id());
@@ -643,11 +657,12 @@ fn selector_to_element(node_tree: &CssNodeTree, node_id: NodeId) -> Option<Tree<
         }
     }
 
-    let mut builder = SelectorElementBuilder::new(&node_tree, &mut ele_tree, ele_tree.root().id());
+    let root = ele_tree.root().id();
+    let mut builder = SelectorElementBuilder::new(&node_tree, &mut ele_tree, root);
 
     for rule_set in parent_rule_sets.into_iter().rev() {
         let selector = node_tree.get(
-            node_tree.get(rule_set).unwrap().value().node_type.unchecked_rule_set().selectors
+            node_tree.get(rule_set).unwrap().value().node_type.unchecked_rule_set_ref().selectors
         ).unwrap().first_child();
         if let Some(sel) = selector {
             builder.process_selector(sel);

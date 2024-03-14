@@ -1,6 +1,7 @@
 
 
 use regex::Regex;
+use tracing::trace;
 
 use crate::css_language_types::{ AtDirectiveData, Content, EntryStatus, HoverSettings, MarkedString, MarkupContent, MarkupKind, PropertyData, PseudoClassData, PseudoElementData, Reference, ValueData };
 
@@ -34,20 +35,19 @@ const fn get_entry_status(status: EntryStatus) -> &'static str {
     }
 }
 
-pub fn get_entry_description(entry: IEntry2, doesSupportMarkdown: bool, settings: &Option<HoverSettings>) -> Option<MarkupContent> {
-    let mut result: MarkupContent;
+pub fn get_entry_description(entry: IEntry2, does_support_markdown: bool, settings: &Option<HoverSettings>) -> Option<MarkupContent> {
 
-    if doesSupportMarkdown {
-        result = MarkupContent {
+    let result: MarkupContent = if does_support_markdown {
+        MarkupContent {
             kind: MarkupKind::Markdown,
             value: get_entry_markdown_description(entry, settings)
-        };
+        }
     } else {
-        result = MarkupContent {
+        MarkupContent {
             kind: MarkupKind::PlainText,
             value: get_entry_string_description(entry, settings)
-        };
-    }
+        }
+    };
 
     if result.value == "" {
         return None;
@@ -69,10 +69,10 @@ pub fn text_to_marked_string_inner(mut text: String) -> String {
 // escape markdown syntax tokens
 pub fn markify_string(text: &mut String) {
     for ch in "\\[]{}()`*#+-.!".chars() {
-        text.replace(&ch.to_string(), &("\\".to_owned() + &ch.to_string()));
+        *text = text.replace(&ch.to_string(), &("\\".to_owned() + &ch.to_string()));
     }
-    text.replace("<", "&lt;");
-    text.replace(">", "&rt;");
+    *text = text.replace("<", "&lt;");
+    *text = text.replace(">", "&gt;");
     //text = text.replace("[\\`*_{}[\\]()#+\\-.!]", "\\$&"); // escape markdown syntax tokens: http://daringfireball.net/projects/markdown/syntax#backslash
     //return text.replace("<", "&lt;").replace(">", "&gt;");
 }
@@ -98,7 +98,7 @@ fn get_entry_string_description(entry: IEntry2, settings: &Option<HoverSettings>
             }
             result += &desc.value();
     
-            if let Some(browser_label) = get_browser_label(entry.browsers().unwrap_or(Vec::new())) {
+            if let Some(browser_label) = get_browser_label(&entry.browsers().as_ref().unwrap_or(&Vec::new())) {
                 result += "\n(";
                 result += &browser_label;
                 result += ")";
@@ -114,7 +114,7 @@ fn get_entry_string_description(entry: IEntry2, settings: &Option<HoverSettings>
                     result += "\n\n";
                 }
                 result += &refs.into_iter().map(|r| {
-                    return r.name + ": " + &r.url
+                    return r.name.to_owned() + ": " + &r.url
                 }).collect::<Vec<String>>().join(" | ");
             }
         }
@@ -138,19 +138,19 @@ fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSetting
                 result += get_entry_status(*status);
             }
 
-            result += match desc {
-                Content::String(s) => &text_to_marked_string_inner(s.to_string()),
+            match desc {
+                Content::String(s) => result += &text_to_marked_string_inner(s.to_string()),
                 Content::Markup(mc) => {
                     match mc.kind {
-                        MarkupKind::Markdown => &mc.value,
-                        MarkupKind::PlainText => &text_to_marked_string_inner(mc.value),
+                        MarkupKind::Markdown => result += &mc.value,
+                        MarkupKind::PlainText => result += &text_to_marked_string_inner(mc.value.clone()),
                     }
                 }
             };
         
-            if let Some(browserLabel) = get_browser_label(entry.browsers().unwrap_or(Vec::new())) {
+            if let Some(browser_label) = get_browser_label(&entry.browsers().as_ref().unwrap_or(&Vec::new())) {
                 result += "\n\n(";
-                result += &text_to_marked_string_inner(browserLabel);
+                result += &text_to_marked_string_inner(browser_label);
                 result += ")";
             }
             if let Some(syntax) = entry.syntax() {
@@ -181,7 +181,7 @@ fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSetting
  * Input is like `["E12","FF49","C47","IE","O"]`
 * Output is like `Edge 12, Firefox 49, Chrome 47, IE, Opera`
 */
-pub fn get_browser_label(browsers: Vec<String>) -> Option<String> {
+pub fn get_browser_label(browsers: &Vec<String>) -> Option<String> {
     if browsers.len() == 0 {
         return None;
     }
@@ -189,19 +189,23 @@ pub fn get_browser_label(browsers: Vec<String>) -> Option<String> {
     return Some(browsers
         .into_iter().map(|b| {
             let mut result = "".to_owned();
-            let mut matches = Regex::new("([A-Z]+)(\\d+)?").unwrap().find_iter(&b);
+            let reg = Regex::new(r"(?<name>[A-Z]+)(?<version>\d+)?").unwrap();
+            let mut matches = reg.captures_iter(&b);
 
-            let name = matches.next();
-            let version = matches.next();
+            let first_mat = matches.next();
+            let name = first_mat.as_ref().map(|f| f["name"].to_owned());
+            let version = first_mat.map(|f| f["version"].to_owned());
 
             if let Some(name) = name {
-                if let Some(browso) = BROWSER_NAMES.iter().find(|b| b.0 == name.as_str()) {
+                trace!(name = name);
+
+                if let Some(browso) = BROWSER_NAMES.iter().find(|b| b.0 == name) {
                     result += browso.1;
                 }
             }
             if let Some(version) = version {
                 result += " ";
-                result += version.as_str();
+                result += &version;
             }
             return result;
         }).collect::<Vec<String>>().join(", "));
@@ -256,7 +260,7 @@ impl IEntry2<'_> {
 
     pub fn syntax(&self) -> Option<&String> {
         match self {
-            Self::Prop(PropertyData {syntax, ..}) => {Some(syntax)}
+            Self::Prop(PropertyData {syntax, ..}) => {syntax.as_ref()}
             _ => {None}
         }
     }

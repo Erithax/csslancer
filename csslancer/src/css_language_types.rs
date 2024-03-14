@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 pub use lsp_types::*;
+use serde::de;
 
 type LintSettings = HashMap<String, String>;
 
@@ -135,26 +136,62 @@ pub struct LanguageServiceOptions {
     client_capabilities: ClientCapabilities,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, serde::Deserialize, serde::Serialize)]
 pub enum EntryStatus {
+
     Standard,
+    #[serde(alias = "experimental")] 
     Experimental,
+    #[serde(alias = "nonstandard")] 
     NonStandard,
+    #[serde(alias = "obsolete")] 
     Obsolete,
 }
 
 //
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Reference {
     pub name: String,
     pub url: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum Content {
     String(String),
     Markup(MarkupContent),
 }
+
+struct ContentVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ContentVisitor {
+    type Value = Content;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where E: de::Error,
+    {
+        Ok(Content::String(value.to_owned()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where E: de::Error,
+    {
+        Ok(Content::String(value))
+    }
+
+}
+impl<'de> serde::Deserialize<'de> for Content {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: de::Deserializer<'de> {
+        deserializer.deserialize_string(ContentVisitor)
+    }
+}
+
 
 impl Content {
     pub fn value(&self) -> &str {
@@ -165,25 +202,61 @@ impl Content {
     }
 }
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct PropertyData {
     pub name: String,
     pub description: Option<Content>,
     pub browsers: Option<Vec<String>>,
-    pub restrictions: Vec<String>,
+    pub restrictions: Option<Vec<String>>,
     pub status: Option<EntryStatus>,
-    pub syntax: String,
+    pub syntax: Option<String>,
+    #[serde(default)] 
     pub values: Vec<ValueData>,
     pub references: Option<Vec<Reference>>,
     pub relevance: i64,
-    pub at_rule: String,
+    pub at_rule: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct PropertyDataSource {
+    pub name: String,
+    pub description: Option<String>,
+    pub browsers: Option<Vec<String>>,
+    pub restrictions: Option<Vec<String>>,
+    pub status: Option<EntryStatus>,
+    pub syntax: Option<String>,
+    #[serde(default)] 
+    pub values: Vec<AtDirectiveDataSource>,
+    pub references: Option<Vec<Reference>>,
+    pub relevance: i64,
+    pub at_rule: Option<String>,
+}
+
+impl From<PropertyDataSource> for PropertyData {
+    fn from(value: PropertyDataSource) -> Self {
+        return PropertyData {
+            name: value.name,
+            description: value.description.map(|d| Content::String(d)),
+            browsers: value.browsers,
+            restrictions: value.restrictions,
+            status: value.status,
+            syntax: value.syntax,
+            values: value.values.into_iter().map(|v| v.into()).collect(),
+            references: value.references,
+            relevance: value.relevance,
+            at_rule: value.at_rule,
+
+        }
+    }
 }
 
 impl Hash for PropertyData {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.name.into_bytes());
+        state.write(&self.name.clone().into_bytes());
     }
 }
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct AtDirectiveData {
     pub name: String,
     pub description: Option<Content>,
@@ -192,9 +265,30 @@ pub struct AtDirectiveData {
     pub references: Option<Vec<Reference>>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct AtDirectiveDataSource {
+    pub name: String,
+    pub description: Option<String>,
+    pub browsers: Option<Vec<String>>,
+    pub status: Option<EntryStatus>,
+    pub references: Option<Vec<Reference>>,
+}
+
+impl From<AtDirectiveDataSource> for AtDirectiveData {
+    fn from(value: AtDirectiveDataSource) -> Self {
+        return AtDirectiveData {
+            name: value.name,
+            description: value.description.map(|d| Content::String(d)),
+            browsers: value.browsers,
+            status: value.status,
+            references: value.references,
+        }
+    }
+}
+
 impl Hash for AtDirectiveData {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.name.into_bytes());
+        state.write(&self.name.clone().into_bytes());
     }
 }
 
@@ -202,6 +296,7 @@ pub type PseudoClassData = AtDirectiveData;
 pub type PseudoElementData = AtDirectiveData;
 pub type ValueData = AtDirectiveData;
 
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub enum CssDataVersion {
     One,
     OneOne,
@@ -215,19 +310,115 @@ impl CssDataVersion {
     }
 }
 
+impl TryFrom<f64> for CssDataVersion {
+    type Error = String;
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        if (value - 1.1).abs() < 0.0000001 {return Ok(Self::OneOne)}
+        if (value - 1.0).abs() < 0.0000001 {return Ok(Self::One)}
+        return Err(format!("invalid version float `{}`", value))
+    }
+}
+impl From<CssDataVersion> for f64 {
+    fn from(value: CssDataVersion) -> Self {
+        match value {
+            CssDataVersion::One => return 1.0,
+            CssDataVersion::OneOne => return 1.1
+        }
+    }
+}
+// struct CssDataVersionVisitor;
+
+// impl<'de> serde::de::Visitor<'de> for CssDataVersionVisitor {
+//     type Value = CssDataVersion;
+
+//     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//         formatter.write_str("an integer between -2^31 and 2^31")
+//     }
+
+//     fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+//         where E: de::Error,
+//     {
+//         if let Ok(val) = CssDataVersion::try_from(value) {
+//             Ok(val)
+//         } else {
+//             Err(E::custom(format!("version number in css data could not be deserialized to known version: {}", value)))
+//         }
+//     }
+// }
+// impl<'de> serde::Deserialize<'de> for CssDataVersion {
+//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//         where
+//             D: de::Deserializer<'de> {
+//         deserializer.deserialize_f64(CssDataVersionVisitor)
+//     }
+// }
+// impl serde::Serialize for CssDataVersion {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//         where
+//             S: serde::Serializer {
+//         println!("serializing yeya");
+//         serializer.serialize_f64(f64::from(*self))
+//     }
+// }
+
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct CssDataV1 {
-    version: CssDataVersion,
-    properties: Vec<PropertyData>,
-    at_directives: Vec<AtDirectiveData>,
-    pseudo_classes: Vec<PseudoClassData>,
-    pseudo_elements: Vec<PseudoElementData>,
+    pub version: CssDataVersion,
+    pub properties: Vec<PropertyData>,
+    #[serde(alias = "atDirectives")]
+    pub at_directives: Vec<AtDirectiveData>,
+    #[serde(alias = "pseudoClasses")]
+    pub pseudo_classes: Vec<PseudoClassData>,
+    #[serde(alias = "pseudoElements")]
+    pub pseudo_elements: Vec<PseudoElementData>,
+}
+
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CssDataV1Source {
+    pub version: f64,
+    pub properties: Vec<PropertyDataSource>,
+    #[serde(alias = "atDirectives")]
+    pub at_directives: Vec<AtDirectiveDataSource>,
+    #[serde(alias = "pseudoClasses")]
+    pub pseudo_classes: Vec<AtDirectiveDataSource>,
+    #[serde(alias = "pseudoElements")]
+    pub pseudo_elements: Vec<AtDirectiveDataSource>,
+}
+
+impl From<CssDataV1Source> for CssDataV1 {
+    fn from(value: CssDataV1Source) -> Self {
+        return Self { 
+            version: value.version.try_into().unwrap(), 
+            properties: value.properties.into_iter().map(|x| x.into()).collect(), 
+            at_directives: value.at_directives.into_iter().map(|x| x.into()).collect(), 
+            pseudo_classes: value.pseudo_classes.into_iter().map(|x| x.into()).collect(), 
+            pseudo_elements: value.pseudo_elements.into_iter().map(|x| x.into()).collect(), 
+        }
+    }
 }
 
 pub trait ProvideCssData {
-    fn provide_properties(&self) -> Vec<PropertyData>;
-    fn provide_at_directives(&self) -> Vec<AtDirectiveData>;
-    fn provide_pseudo_classes(&self) -> Vec<PseudoClassData>;
-    fn provide_pseudo_elements(&self) -> Vec<PseudoElementData>;
+    fn provide_properties(&mut self) -> Vec<PropertyData>;
+    fn provide_at_directives(&mut self) -> Vec<AtDirectiveData>;
+    fn provide_pseudo_classes(&mut self) -> Vec<PseudoClassData>;
+    fn provide_pseudo_elements(&mut self) -> Vec<PseudoElementData>;
+}
+
+
+impl ProvideCssData for CssDataV1 {
+    fn provide_properties(&mut self) -> Vec<PropertyData> {
+        return std::mem::take(&mut self.properties)
+    }
+    fn provide_at_directives(&mut self) -> Vec<AtDirectiveData> {
+        return std::mem::take(&mut self.at_directives)
+    }
+    fn provide_pseudo_classes(&mut self) -> Vec<PseudoClassData> {
+        return std::mem::take(&mut self.pseudo_classes)
+    }
+    fn provide_pseudo_elements(&mut self) -> Vec<PseudoElementData> {
+        return std::mem::take(&mut self.pseudo_elements)
+    }
 }
 
 //

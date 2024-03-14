@@ -1,7 +1,6 @@
-use crate::css_language_types::{AtDirectiveData, EntryStatus, PropertyData, ProvideCssData, PseudoClassData, PseudoElementData};
+use crate::css_language_types::{AtDirectiveData, CssDataV1, CssDataV1Source, EntryStatus, PropertyData, ProvideCssData, PseudoClassData, PseudoElementData};
 
-use super::data_provider::CssDataProvider;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub struct CssDataManager {
     data_providers: Vec<Box<dyn ProvideCssData + Sync + Send>>,
@@ -18,12 +17,13 @@ pub struct CssDataManager {
 }
 
 impl CssDataManager {
-    pub fn new(use_default_data_provider: bool, custom_data_providers: Option<Vec<Box<dyn ProvideCssData + Sync>>>) -> Self {
-        let mut data_providers = Vec::new();
+    pub fn new(use_default_data_provider: bool, custom_data_providers: Option<Vec<Box<dyn ProvideCssData + Sync + Send>>>) -> Self {
+        let mut data_providers: Vec<Box<dyn ProvideCssData + Sync + Send>> = Vec::new();
         if use_default_data_provider {
-            data_providers.push(CssDataProvider::new(CssData));
+            let json_str = include_str!("./WebData.json");
+            data_providers.push(Box::<CssDataV1>::new(serde_json::from_str::<'_, CssDataV1Source>(json_str).unwrap().into()));
         }
-        if let Some(custom_data_providers) = custom_data_providers {
+        if let Some(mut custom_data_providers) = custom_data_providers {
             data_providers.append(&mut custom_data_providers);
         }
 
@@ -34,11 +34,11 @@ impl CssDataManager {
     }
 
     fn collect_data(&mut self) {
-        for data_provider in self.data_providers {
-            data_provider.provide_properties().into_iter().for_each(|i| {self.property_set.insert(i.name, i);});
-            data_provider.provide_at_directives().into_iter().for_each(|i| {self.at_directive_set.insert(i.name, i);});
-            data_provider.provide_pseudo_classes().into_iter().for_each(|i| {self.pseudo_class_set.insert(i.name, i);});
-            data_provider.provide_pseudo_elements().into_iter().for_each(|i| {self.pseudo_element_set.insert(i.name, i);});
+        for mut data_provider in std::mem::take(&mut self.data_providers).into_iter() {
+            data_provider.provide_properties().into_iter().for_each(|i| {self.property_set.insert(i.name.clone(), i);});
+            data_provider.provide_at_directives().into_iter().for_each(|i| {self.at_directive_set.insert(i.name.clone(), i);});
+            data_provider.provide_pseudo_classes().into_iter().for_each(|i| {self.pseudo_class_set.insert(i.name.clone(), i);});
+            data_provider.provide_pseudo_elements().into_iter().for_each(|i| {self.pseudo_element_set.insert(i.name.clone(), i);});
         }
         // self.properties = self.property_set.iter().collect();
         // self.at_directives = self.at_directive_set.iter().collect();
@@ -69,11 +69,11 @@ impl CssDataManager {
 impl Default for CssDataManager {
     fn default() -> Self {
         Self {
+            data_providers: Vec::new(), // TODO: consider adding default css data?
             property_set: HashMap::new(),
             at_directive_set: HashMap::new(),
             pseudo_class_set: HashMap::new(),
             pseudo_element_set: HashMap::new(),
-            ..Default::default()
         }
     }
 }

@@ -42,7 +42,6 @@ use crate::workspace::Workspace;
 
 use std::sync::{Arc, RwLock as SyncRwLock};
 
-use self::selector_printing::SelectorPrinting;
 use self::semantic_tokens::{get_semantic_tokens_options, SemanticTokenCache};
 
 pub struct CssLancerServer {
@@ -133,13 +132,14 @@ impl LanguageServer for CssLancerServer {
             .map_err(|_| ())
             .expect("workspace should not yet be initialized");
 
-        self.client_capabilities
-            .set(params.capabilities)
-            .expect("client capabilities should not yet be initialized");
-
         self.const_config
             .set(ConstConfig::from(&params))
             .expect("const config should not yet be initialized");
+
+        self.client_capabilities
+            .set(params.capabilities.clone())
+            .expect("client capabilities should not yet be initialized");
+
 
         if let Some(init) = &params.initialization_options {
             warn!("found init options");
@@ -190,6 +190,7 @@ impl LanguageServer for CssLancerServer {
                     },
                 )),
                 semantic_tokens_provider,
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
@@ -319,7 +320,9 @@ impl LanguageServer for CssLancerServer {
         Err(Error::invalid_request())
     }
 
+    #[tracing::instrument(skip_all, fields(uri = %params.text_document_position_params.text_document.uri))]
     async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+        trace!("hover()");
         let url = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
@@ -362,7 +365,7 @@ impl LanguageServer for CssLancerServer {
         &self,
         params: SemanticTokensParams,
     ) -> jsonrpc::Result<Option<SemanticTokensResult>> {
-        warn!("semantic_tokens_full()");
+        trace!("semantic_tokens_full()");
         let uri = params.text_document.uri;
 
         let Ok(src_read_guard) = self.source_read(&uri).await else {

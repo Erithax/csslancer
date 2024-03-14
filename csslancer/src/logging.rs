@@ -44,7 +44,7 @@ pub fn tracing_init() -> (
 
     tracing_subscriber::registry()
         .with(lsp_layer)
-        .with(console_layer)
+        .with(console_layer) // INFINITE LOOP IF THIS IS NOT USED!?
         .with(chrome_layer)
         .init();
 
