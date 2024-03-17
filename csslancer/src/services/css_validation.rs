@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::interop::csslancer_to_lsp::offset_to_position;
+use crate::interop::csslancer_to_client::offset_to_position;
 use crate::parser::css_nodes::{Level, Marker};
 use crate::workspace::FsError;
 use itertools::Itertools;

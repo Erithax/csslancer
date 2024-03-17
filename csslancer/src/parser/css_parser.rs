@@ -56,7 +56,7 @@ pub struct Parser {
     pub token: Token,
     pub prev_token: Option<Token>,
     last_error_token: Option<Token>, // see Parser::mark_error_u( ... ) for why we keep NodeId
-    tree: SourceLessCssNodeTree,
+    pub tree: SourceLessCssNodeTree,
     root: NodeId,
 }
 
@@ -591,22 +591,34 @@ impl Parser {
 
         let selectors = self.orphan(CssNodeType::Nodelist);
 
-        if let Some(sel) = self.parse_selector(is_nested) {
-            self.append(selectors, sel);
+        if let Some(selector) = self.parse_selector(is_nested) {
+            self.append(selectors, selector);
             self.nodemut_u(node)
                 .value()
                 .node_type
                 .unchecked_rule_set()
                 .selectors = selectors;
+            //HOTFIX
+            let selector_end = self.node_u(selector).value().end();
+            let selectors_offset = self.node_u(selectors).value().offset;
+            self.nodemut_u(selectors).value().length = selector_end - selectors_offset;
+            // ENDHOTFIX
         } else {
             return None;
         }
 
+
+
         self.append(node, selectors);
 
         while self.accept(TokenType::Comma) {
-            if let Some(sel) = self.parse_selector(is_nested) {
-                self.append(selectors, sel);
+            if let Some(selector) = self.parse_selector(is_nested) {
+                self.append(selectors, selector);
+                //HOTFIX TODO: VSCODE CSS LANGUAGESERVICE MAKES NODELIST.offset == NODELIST.length == -1
+                let selector_end = self.node_u(selector).value().end();
+                let selectors_offset = self.node_u(selectors).value().offset;
+                self.nodemut_u(selectors).value().length = selector_end - selectors_offset;
+                // ENDHOTFIX
             } else {
                 self.finish_u(node, Some(ParseError::SelectorExpected), None, None);
                 return Some(node);
@@ -758,7 +770,7 @@ impl Parser {
         #[cfg(debug_assertions)]
         match &self.value_u(node_id).node_type {
             CssNodeType::_BodyDeclaration(b) => {
-                assert!(b.declarations.is_none(), "no bueno");
+                assert!(b.declarations.is_none(), "no good");
             }
             _ => {
                 panic!("internal code error: parse_body(.., node: CssNode ..) node.node_type should be BodyDeclaration");
@@ -2482,10 +2494,10 @@ impl Parser {
             return None;
         }
 
-        let node = self.orphan(CssNodeType::AttributeSelector(AttributeSelector {
+        let node: NodeId = self.orphan(CssNodeType::AttributeSelector(AttributeSelector {
             namespace_prefix: None,
             operator: self.root,
-            value: self.root,
+            value: None,
             identifier: self.root,
         }));
         self.consume_token(); // `[`
@@ -2505,7 +2517,7 @@ impl Parser {
         addchild!(operator then {
             self.nodemut_u(node).value().node_type.unchecked_attribute_selector().operator = operator;
             addchild!(binary_expr then {
-                self.nodemut_u(node).value().node_type.unchecked_attribute_selector().value = binary_expr;
+                self.nodemut_u(node).value().node_type.unchecked_attribute_selector().value = Some(binary_expr);
             });
             self.accept_ident("i"); // case insensitive matching
             self.accept_ident("s"); // case sensitive matching
@@ -2537,7 +2549,7 @@ impl Parser {
                 }
                 while s.accept(TokenType::Comma) {
                     if let Some(_sel) = s.parse_selector(true) {
-                        s.append(selectors, selectors);
+                        s.append(selectors, _sel);
                     } else {
                         break;
                     }
@@ -2584,7 +2596,6 @@ impl Parser {
         // optional, support ::
         self.accept(TokenType::Colon);
         if self.has_whitespace() || !addchildbool!(ident(None)) {
-            println!("id88 49"); // TODO: MARKERINO delete this, this was a marker MARKER
             return self.finito_u(node, Some(ParseError::IdentifierExpected), None, None);
         }
         return self.varnish(node);
@@ -2945,6 +2956,17 @@ impl Parser {
     }
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new_with_text("".to_owned())
+    }
+}
+
+
+
+
+
+
 #[cfg(test)]
 mod test_css_parser {
     use super::*;
@@ -2954,14 +2976,12 @@ mod test_css_parser {
         let mut parser = Parser::new_with_text(text.to_owned());
         let tree = parser.get_tree_parsed_by_fn(f);
         assert!(tree.is_some(), "Failed parsing node");
-        let fancy = tree.unwrap().fancy_string();
-        println!("{}", fancy);
+        let tree = tree.unwrap();
+        tree.assert_valid();
+        // println!("{}", tree.fancy_string());
         let mut markers = Vec::new();
-        tree.as_ref()
-            .unwrap()
-            .0
-            .nodes()
-            .filter(|n| tree.unwrap().is_attached(n.id())) // discard orphans
+        tree.0.nodes()
+            .filter(|n| tree.is_attached(n.id())) // discard orphans
             .for_each(|n| markers.append(&mut n.value().issues.clone()));
 
         assert!(
@@ -2989,12 +3009,11 @@ mod test_css_parser {
         let mut parser = Parser::new_with_text(text.to_owned());
         let tree = parser.get_tree_parsed_by_fn(f);
         assert!(tree.is_some(), "Failed parsing node");
+        let tree = tree.unwrap();
+        tree.assert_valid();
         let mut markers = Vec::new();
-        tree.as_ref()
-            .unwrap()
-            .0
-            .nodes()
-            .filter(|n| tree.unwrap().is_attached(n.id())) // discard orphans
+        tree.0.nodes()
+            .filter(|n| tree.is_attached(n.id())) // discard orphans
             .for_each(|n| markers.append(&mut n.value().issues.clone()));
 
         assert!(

@@ -2,7 +2,7 @@ use tower_lsp::lsp_types::{Position, SemanticToken};
 
 use crate::config::PositionEncoding;
 use crate::ext::{PositionExt, StrExt};
-use crate::interop::csslancer_to_lsp;
+use crate::interop::csslancer_to_client;
 use crate::workspace::source::Source;
 
 use super::Token;
@@ -26,7 +26,7 @@ fn encode_token(
     source: &Source,
     encoding: PositionEncoding,
 ) -> (SemanticToken, String, Position) {
-    let position = csslancer_to_lsp::offset_to_position(token.offset, encoding, source);
+    let position = csslancer_to_client::offset_to_position(token.offset, encoding, source);
 
     let delta = last_position.delta(&position);
 

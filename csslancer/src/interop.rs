@@ -11,30 +11,33 @@ pub type LspPositionEncoding = crate::config::PositionEncoding;
 /// Byte offset (i.e. UTF-8 bytes) in Typst files, either from the start of the line or the file
 pub type CsslancerOffset = usize;
 
-/// An LSP range. It needs its associated `LspPositionEncoding` to be used. The `LspRange` struct
-/// provides this range with that encoding.
-pub type LspRawRange = lsp_types::Range;
+
+
 pub type CssLancerRange = std::ops::Range<usize>;
 
-pub struct LspRange {
-    pub raw_range: LspRawRange,
+/// An LSP range. It needs its associated `LspPositionEncoding` to be used (hence 'raw'). The `ClientRange` struct
+/// provides this range with that encoding. This struct should be unless for at the server-client boundary.
+pub type ClientRawRange = lsp_types::Range;
+
+pub struct ClientRange {
+    pub raw_client_range: ClientRawRange,
     pub encoding: LspPositionEncoding,
 }
 
-impl LspRange {
-    pub fn new(raw_range: LspRawRange, encoding: LspPositionEncoding) -> Self {
+impl ClientRange {
+    pub fn new(raw_range: ClientRawRange, encoding: LspPositionEncoding) -> Self {
         Self {
-            raw_range,
+            raw_client_range: raw_range,
             encoding,
         }
     }
 
     pub fn into_range_on(self, doc: &Source) -> CssLancerRange {
-        lsp_to_csslancer::range(&self, doc)
+        client_to_csslancer::range(&self, doc)
     }
 }
 
-pub mod lsp_to_csslancer {
+pub mod client_to_csslancer {
     use super::*;
 
     pub fn position_to_offset(
@@ -79,11 +82,11 @@ pub mod lsp_to_csslancer {
         }
     }
 
-    pub fn range(lsp_range: &LspRange, document: &Source) -> CssLancerRange {
-        let lsp_start = lsp_range.raw_range.start;
+    pub fn range(lsp_range: &ClientRange, document: &Source) -> CssLancerRange {
+        let lsp_start = lsp_range.raw_client_range.start;
         let csslancer_start = position_to_offset(lsp_start, lsp_range.encoding, document);
 
-        let lsp_end = lsp_range.raw_range.end;
+        let lsp_end = lsp_range.raw_client_range.end;
         let csslancer_end = position_to_offset(lsp_end, lsp_range.encoding, document);
 
         CssLancerRange {
@@ -93,7 +96,7 @@ pub mod lsp_to_csslancer {
     }
 }
 
-pub mod csslancer_to_lsp {
+pub mod csslancer_to_client {
     use crate::interop::*;
 
     pub fn offset_to_position(
@@ -131,15 +134,15 @@ pub mod csslancer_to_lsp {
         csslancer_range: CssLancerRange,
         source: &Source,
         lsp_position_encoding: LspPositionEncoding,
-    ) -> LspRange {
+    ) -> ClientRange {
         let typst_start = csslancer_range.start;
         let lsp_start = offset_to_position(typst_start, lsp_position_encoding, source);
 
         let typst_end = csslancer_range.end;
         let lsp_end = offset_to_position(typst_end, lsp_position_encoding, source);
 
-        let raw_range = LspRawRange::new(lsp_start, lsp_end);
-        LspRange::new(raw_range, lsp_position_encoding)
+        let raw_range = ClientRawRange::new(lsp_start, lsp_end);
+        ClientRange::new(raw_range, lsp_position_encoding)
     }
 
     // fn completion_kind(typst_completion_kind: TypstCompletionKind) -> LspCompletionKind {
@@ -392,7 +395,7 @@ pub mod csslancer_to_lsp {
 mod test {
 
     use crate::config::PositionEncoding;
-    use crate::interop::lsp_to_csslancer;
+    use crate::interop::client_to_csslancer;
 
     use super::*;
 
@@ -420,19 +423,19 @@ mod test {
         };
 
         let start_offset =
-            lsp_to_csslancer::position_to_offset(start, PositionEncoding::Utf16, &source);
+            client_to_csslancer::position_to_offset(start, PositionEncoding::Utf16, &source);
         let start_actual = 0;
 
         let emoji_offset =
-            lsp_to_csslancer::position_to_offset(emoji, PositionEncoding::Utf16, &source);
+            client_to_csslancer::position_to_offset(emoji, PositionEncoding::Utf16, &source);
         let emoji_actual = 5;
 
         let post_emoji_offset =
-            lsp_to_csslancer::position_to_offset(post_emoji, PositionEncoding::Utf16, &source);
+            client_to_csslancer::position_to_offset(post_emoji, PositionEncoding::Utf16, &source);
         let post_emoji_actual = 9;
 
         let end_offset =
-            lsp_to_csslancer::position_to_offset(end, PositionEncoding::Utf16, &source);
+            client_to_csslancer::position_to_offset(end, PositionEncoding::Utf16, &source);
         let end_actual = 14;
 
         assert_eq!(start_offset, start_actual);
@@ -455,28 +458,28 @@ mod test {
             character: 0,
         };
         let start_actual =
-            csslancer_to_lsp::offset_to_position(start, PositionEncoding::Utf16, &source);
+            csslancer_to_client::offset_to_position(start, PositionEncoding::Utf16, &source);
 
         let emoji_position = LspPosition {
             line: 0,
             character: 5,
         };
         let emoji_actual =
-            csslancer_to_lsp::offset_to_position(emoji, PositionEncoding::Utf16, &source);
+            csslancer_to_client::offset_to_position(emoji, PositionEncoding::Utf16, &source);
 
         let post_emoji_position = LspPosition {
             line: 0,
             character: 7,
         };
         let post_emoji_actual =
-            csslancer_to_lsp::offset_to_position(post_emoji, PositionEncoding::Utf16, &source);
+            csslancer_to_client::offset_to_position(post_emoji, PositionEncoding::Utf16, &source);
 
         let end_position = LspPosition {
             line: 0,
             character: 12,
         };
         let end_actual =
-            csslancer_to_lsp::offset_to_position(end, PositionEncoding::Utf16, &source);
+            csslancer_to_client::offset_to_position(end, PositionEncoding::Utf16, &source);
 
         assert_eq!(start_position, start_actual);
         assert_eq!(emoji_position, emoji_actual);

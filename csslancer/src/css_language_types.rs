@@ -21,6 +21,14 @@ pub struct HoverSettings {
     pub documentation: bool,
     pub references: bool,
 }
+impl Default for HoverSettings {
+    fn default() -> Self {
+        Self {
+            documentation: false,
+            references: false,
+        }
+    }
+}
 
 pub struct LanguageSettings {
     pub validate: bool,

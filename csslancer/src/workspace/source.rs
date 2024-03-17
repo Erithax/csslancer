@@ -1,3 +1,4 @@
+use crate::interop::CssLancerRange;
 use crate::parser::css_nodes::CssNodeTree;
 use crate::parser::css_parser::Parser;
 use lsp_types::Url;
@@ -57,6 +58,10 @@ impl Source {
     /// Slice out the part of the source code enclosed by the range.
     pub fn get(&self, range: Range<usize>) -> Option<&str> {
         self.text().get(range)
+    }
+
+    pub fn text_at(&self, csslancer_range: CssLancerRange) -> &str {
+        &self.text()[csslancer_range]
     }
 
     /// Return the index of the UTF-16 code unit at the byte index.

@@ -74,6 +74,23 @@ impl CssLancerServer {
         };
     }
 
+    pub fn new_dud() -> Self {
+        //let (lsp_tracing_layer_handle, _chrome_trace_guard) = crate::logging::tracing_init();
+
+        let (_, lsp_tracing_layer_handle) = reload::Layer::new(None);
+
+        let lsp_tracing_layer_handle_clone = lsp_tracing_layer_handle.clone();
+
+        let (service, _) =
+            tower_lsp::LspService::new(move |client| CssLancerServer::new(client, lsp_tracing_layer_handle_clone));
+    
+        let client = service.inner().client.clone();
+
+        //crate::logging::tracing_shutdown();
+
+        return Self::new(client, lsp_tracing_layer_handle)
+    }
+
     pub async fn workspace_read(&self) -> tokio::sync::RwLockReadGuard<'_, Workspace> {
         self.workspace
             .get()
@@ -325,11 +342,18 @@ impl LanguageServer for CssLancerServer {
         trace!("hover()");
         let url = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-
-        self.get_hover(&url, position, &Some(HoverSettings{documentation: true, references: true})).await.map_err(|err| {
-            error!(%err, %url, "error getting hover");
-            jsonrpc::Error::internal_error()
-        })
+        match self.source_read(&url).await {
+            Err(err) => {
+                tracing::error!(%err, %url, "could not handle hover (could not lock source file)");
+                return jsonrpc::Result::Err(jsonrpc::Error::internal_error());
+            }
+            Ok(o) => return 
+                self.get_hover(&o, position, &Some(HoverSettings{documentation: true, references: true})).map_err(|err| {
+                    error!(%err, %url, "error getting hover");
+                    jsonrpc::Error::internal_error()
+                })
+            ,
+        }
     }
 
     async fn completion(

@@ -82,6 +82,35 @@ impl CssNode {
     }
 }
 
+
+pub trait PrettyDisplay {
+    fn fancy_string(&self) -> String;
+}
+impl PrettyDisplay for Tree<CssNode> {
+    fn fancy_string(&self) -> String {
+        return fancy_string_internal(self.root(), 0).replace("\n\n", "\n");
+    }
+}
+fn fancy_string_internal(node: NodeRef<'_, CssNode>, ident: usize) -> String {
+    let ident_s = "    ".repeat(ident);
+    return "\n".to_owned()
+        + &ident_s
+        + &format!(
+            "{:?}[{:?}]({}-{}) {{",
+            node.value().node_type,
+            node.id(),
+            node.value().offset,
+            node.value().length
+        )
+        + &node
+            .children()
+            .map(|ch| fancy_string_internal(ch, ident + 1))
+            .fold(String::new(), |acc, nex| acc + &nex)
+        + "\n"
+        + &ident_s
+        + "}";
+}
+
 impl PartialEq for CssNode {
     fn eq(&self, other: &Self) -> bool {
         return self.offset == other.offset
@@ -172,6 +201,7 @@ pub trait NodeRefExt<'a> {
     fn find_child_at_offset(self, offset: usize, go_deep: bool) -> Option<NodeRef<'a, CssNode>>;
     fn get_node_path(self, offset: usize) -> Vec<NodeId>;
     fn get_node_at_offset(self, offset: usize,) -> Option<NodeRef<'a, CssNode>>;
+    fn find_ancestor<C : Fn(&Self) -> bool>(self, cond: C) -> Option<Box<Self>>;
 }
 
 impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
@@ -204,25 +234,22 @@ impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
     }
 
     fn get_node_at_offset(self, offset: usize,) -> Option<NodeRef<'a, CssNode>> {
-        let node_val = self.value();
+        let self_val = self.value();
         let candidate: Option<(NodeId, usize)> = None;
-        if offset < node_val.offset || offset > node_val.end() {
+        if offset < self_val.offset || offset > self_val.end() {
             return None;
         }
 
         struct CandiateVisitor {
             candidate: Option<(NodeId, usize)>, // Option<(NodeId, length)>; mut during visit
-            offset: usize, // const during visit
+            target_offset: usize, // const during visit
         }
 
         impl IVisitor for CandiateVisitor {
             fn visit_node(&mut self, node: NodeRef<CssNode>) -> bool {
-                let self_offset = self.offset;
+                let target_offset = self.target_offset;
                 let node_val = node.value();
-                if node_val.offset == usize::MAX || node_val.length == usize::MAX {
-                    return true;
-                }
-                if node_val.offset <= self_offset && self_offset <= node_val.end() {
+                if node_val.offset <= target_offset && target_offset <= node_val.end() {
                     match self.candidate {
                         None => self.candidate = Some((node.id(), node.value().length)),
                         Some(cand) => {
@@ -240,7 +267,7 @@ impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
 
         let mut visitor = CandiateVisitor {
             candidate,
-            offset,
+            target_offset: offset,
         };
 
         visitor.visit(self);
@@ -251,6 +278,17 @@ impl<'a> NodeRefExt<'a> for NodeRef<'a, CssNode> {
             return self.tree().get(cand.0);
         }
         return None;
+    }
+
+    fn find_ancestor<C : Fn(&Self) -> bool>(self, cond: C) -> Option<Box<Self>> {
+        let mut cand_opt = self.parent();
+        while let Some(cand) = cand_opt {
+            if cond(&cand) {
+                return Some(Box::new(cand))
+            }
+            cand_opt = cand.parent();
+        }
+        return None
     }
 }
 
@@ -476,28 +514,39 @@ impl SourceLessCssNodeTree {
     }
 
     pub fn fancy_string(&self) -> String {
-        return Self::fancy_string_internal(self.0.root(), 0).replace("\n\n", "\n");
+        return self.0.fancy_string()
     }
 
-    fn fancy_string_internal(node: NodeRef<'_, CssNode>, ident: usize) -> String {
-        let ident_s = "    ".repeat(ident);
-        return "\n".to_owned()
-            + &ident_s
-            + &format!(
-                "{:?}[{:?}]({}-{}) {{",
-                node.value().node_type,
-                node.id(),
-                node.value().offset,
-                node.value().length
-            )
-            + &node
-                .children()
-                .map(|ch| Self::fancy_string_internal(ch, ident + 1))
-                .fold(String::new(), |acc, nex| acc + &nex)
-            + "\n"
-            + &ident_s
-            + "}";
+    #[cfg(test)]
+    pub fn assert_valid(&self) {
+        Self::assert_valid_node(self.0.root());
     }
+
+    #[cfg(test)]
+    fn assert_valid_node(node: NodeRef<CssNode>) {
+        let val = node.value();
+        let fc = node.tree().fancy_string();
+        for child in node.children() {
+            let child_val = child.value();
+            assert!(val.offset <= child_val.offset, "child {:?} of node {:?} offset is not larger or equal to parent's offset {}", child.id(), node.id(), fc);
+            assert!(child_val.end() <= val.end(), "child {:?} of node {:?} end is not smaller or equal to paremt end {}", child.id(), node.id(), fc);
+            assert!(node.children().filter(|other_ch| other_ch.value().offset == child_val.offset).count() == 1, "node {:?} has multiple children with same offset {}", node.id(), fc);
+            assert!(node.children().filter(|other_ch| {
+                let other_ch_val = other_ch.value();
+                if child.id() != other_ch.id() &&
+                    (
+                        (child_val.offset <= other_ch_val.offset && other_ch_val.offset <= child_val.end()) ||
+                        (child_val.offset <= other_ch_val.end() && other_ch_val.end() <= child_val.end())
+                    )
+                 {
+                    return true
+                 }
+                 return false
+            }).count() == 0, "child {:?} of node {:?} has siblings which intersect with it's range {}", child.id(), node.id(), fc);
+
+        }
+    }
+
 }
 impl Default for SourceLessCssNodeTree {
     fn default() -> Self {

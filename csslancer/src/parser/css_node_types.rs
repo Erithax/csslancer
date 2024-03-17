@@ -603,7 +603,7 @@ pub struct AttributeSelector {
     pub namespace_prefix: Option<NodeId>, // any
     pub identifier: NodeId,               // Identifier
     pub operator: NodeId,                 // Operator
-    pub value: NodeId,                    // BinaryExpression
+    pub value: Option<NodeId>,            // BinaryExpression
 }
 impl CssNodeType {
     pub fn unchecked_attribute_selector(&mut self) -> &mut AttributeSelector {

@@ -188,11 +188,12 @@ pub struct PositionDelta {
 }
 
 pub trait TreeAttach {
-    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId);
+    /// returns the corresponding NodeId of `other_at` in `self` after attaching
+    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId) -> NodeId;
 }
 
 impl<T: Default> TreeAttach for Tree<T> {
-    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId) {
+    fn attach_tree(&mut self, other: &mut Self, self_at: NodeId, other_at: NodeId) -> NodeId {
         let mut self_node = self.get_mut(self_at).unwrap();
         let new_id = self_node.append(std::mem::take(other.get_mut(other_at).unwrap().value())).id();
         let ch_ids: Vec<NodeId> = other.root().children().map(|ch| ch.id()).collect();
@@ -200,6 +201,7 @@ impl<T: Default> TreeAttach for Tree<T> {
         for ch_id in ch_ids {
             self.attach_tree(other, new_id, ch_id);
         }
+        return new_id
     }
 }
 

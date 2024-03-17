@@ -5,7 +5,7 @@ use lsp_types::{TextDocumentContentChangeEvent, Url};
 use std::collections::HashMap;
 
 use crate::config::PositionEncoding;
-use crate::interop::LspRange;
+use crate::interop::ClientRange;
 use source::Source;
 
 pub struct Workspace {
@@ -79,7 +79,7 @@ impl Workspace {
 
         match change.range {
             Some(lsp_range) => {
-                let range = LspRange::new(lsp_range, position_encoding).into_range_on(source);
+                let range = ClientRange::new(lsp_range, position_encoding).into_range_on(source);
                 source.edit(range, &replacement);
             }
             None => {
