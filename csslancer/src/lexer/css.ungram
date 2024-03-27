@@ -1,0 +1,34 @@
+// CSS Un-Grammar.
+//
+// This grammar specifies the structure of CSS's concrete syntax tree.
+// It does not specify parsing rules (ambiguities, precedence, etc are out of scope).
+// Tokens are processed -- contextual keywords are recognised, compound operators glued.
+//
+// See `csslancer/src/parser/grammar_generator.rs` for the code generation.
+// See `csslancer/src/parser/ast/generated.rs` for the output.
+// 
+// Legend:
+//   //          -- comment
+//   Name =      -- non-terminal definition
+//   'ident'     -- token (terminal)
+//   A B         -- sequence
+//   A | B       -- alternation
+//   A*          -- zero or more repetition
+//   A?          -- zero or one repetition
+//   (A)         -- same as A
+//   label:A     -- suggested name for field of AST node
+
+
+
+//*************************//
+// Names, Paths and Macros //
+//*************************//
+
+
+
+Dimension = 
+    'number' 'ident'
+
+Percentage = 
+    'number' '%'
+

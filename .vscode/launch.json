@@ -11,7 +11,7 @@
             "preLaunchTask": "",
             "request": "launch",
             "type": "extensionHost"
-        }
+        },
     // {
     //     "args": [
     //         "--extensionDevelopmentPath=${workspaceFolder}"
@@ -35,17 +35,17 @@
     //     "environment": [],
     //     "console": true
     // },
-    // {
-    //     "name": "(Windows) Launch Cargo Test",
-    //     "type": "cppvsdbg",
-    //     "request": "launch",
-    //     "program": "${workspaceRoot}/target/debug/deps/csslancer-605c25fb770c188b.exe",
-    //     "args": [],
-    //     "stopAtEntry": false,
-    //     "cwd": "${workspaceRoot}",
-    //     "environment": [],
-    //     "console": true
-    // },
+    {
+        "name": "(Windows) Launch Cargo Test",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceRoot}/target/debug/deps/csslancer-605c25fb770c188b.exe",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceRoot}",
+        "environment": [],
+        "console": "integratedTerminal"
+    },
     // {
     //     "name": "(OSX) Launch",
     //     "type": "lldb",

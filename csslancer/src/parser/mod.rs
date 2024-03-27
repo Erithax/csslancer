@@ -4,3 +4,5 @@ pub mod css_nodes;
 pub mod css_parser;
 pub mod css_scanner;
 pub mod css_symbol_scope;
+pub mod syntax;
+pub mod css_nodes2;

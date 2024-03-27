@@ -189,8 +189,6 @@ const _MIN: char = '-';
 const _USC: char = '_';
 const _PRC: char = '%';
 const _MUL: char = '*';
-const _LPA: char = '(';
-const _RPA: char = ')';
 const _LAN: char = '<';
 const _RAN: char = '>';
 const _ATS: char = '@';
@@ -205,69 +203,40 @@ const _DQO: char = '"';
 const _SQO: char = '\'';
 const _WSP: char = ' ';
 const _TAB: char = '\t';
-const _SEM: char = ';';
-const _COL: char = ':';
-const _CUL: char = '{';
-const _CUR: char = '}';
-const _BRL: char = '[';
-const _BRR: char = ']';
-const _CMA: char = ',';
 const _DOT: char = '.';
 const _BNG: char = '!';
 const _QSM: char = '?';
 const _PLS: char = '+';
 
 pub fn static_token(c: char) -> Option<TokenType> {
-    match if c == _SEM {
-        TokenType::SemiColon
-    } else if c == _COL {
-        TokenType::Colon
-    } else if c == _CUL {
-        TokenType::CurlyL
-    } else if c == _CUR {
-        TokenType::CurlyR
-    } else if c == _BRL {
-        TokenType::BracketL
-    } else if c == _BRR {
-        TokenType::BracketR
-    } else if c == _LPA {
-        TokenType::ParenthesisL
-    } else if c == _RPA {
-        TokenType::ParenthesisR
-    } else if c == _CMA {
-        TokenType::Comma
-    } else {
-        TokenType::_INVALID
-    } {
-        TokenType::_INVALID => return None,
-        a => return Some(a),
+    use TokenType::*;
+    match c {
+        ';' => Some(SemiColon),
+        ':' => Some(Colon),
+        ',' => Some(Comma),
+        '{' => Some(CurlyL),
+        '}' => Some(CurlyR),
+        '[' => Some(BracketL),
+        ']' => Some(BracketR),
+        '(' => Some(ParenthesisL),
+        ')' => Some(ParenthesisR),
+        _ => None
     }
 }
 
 pub fn static_unit_table(s: &str) -> Option<TokenType> {
-    match if s == "em" {
-        TokenType::EMS
-    } else if s == "ex" {
-        TokenType::EXS
-    } else if s == "px" || s == "cm" || s == "mm" || s == "in" || s == "pt" || s == "pc" {
-        TokenType::Length
-    } else if s == "deg" || s == "rad" || s == "grad" {
-        TokenType::Angle
-    } else if s == "ms" || s == "s" {
-        TokenType::Time
-    } else if s == "hz" || s == "khz" {
-        TokenType::Freq
-    } else if s == "%" || s == "fr" {
-        TokenType::Percentage
-    } else if s == "dpi" || s == "dpcm" {
-        TokenType::Resolution
-    } else if s == "cqw" || s == "cqh" || s == "cqi" || s == "cqb" || s == "cqmin" || s == "cqmax" {
-        TokenType::ContainerQueryLength
-    } else {
-        TokenType::_INVALID
-    } {
-        TokenType::_INVALID => return None,
-        a => return Some(a),
+    use TokenType::*;
+    match s {
+        "em" => Some(EMS),
+        "ex" => Some(EXS),
+        "px" | "cm" | "mm" | "in" | "pt" | "pc" => Some(Length),
+        "deg" | "rad" | "grad" => Some(Angle),
+        "ms" | "s" => Some(Time),
+        "hz" | "khz" => Some(Freq),
+        "%" | "fr" => Some(Percentage),
+        "dpi" | "dpcm" => Some(Resolution),
+        "cqw" | "cqh" | "cqi" | "cqb" | "cqmin" | "cqmax" => Some(ContainerQueryLength),
+        _ => None
     }
 }
 

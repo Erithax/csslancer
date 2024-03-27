@@ -55,7 +55,7 @@ pub struct Parser {
     pub scanner: Scanner,
     pub token: Token,
     pub prev_token: Option<Token>,
-    last_error_token: Option<Token>, // see Parser::mark_error_u( ... ) for why we keep NodeId
+    last_error_token: Option<Token>,
     pub tree: SourceLessCssNodeTree,
     root: NodeId,
 }
