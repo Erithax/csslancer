@@ -11,7 +11,8 @@ pub mod logging;
 pub mod parser;
 pub mod services;
 pub mod workspace;
-pub mod lexer;
+pub mod tokenizer;
+pub mod row_parser;
 
 use anyhow::Result;
 use log::{error, info, warn};
