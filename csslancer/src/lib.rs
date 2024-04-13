@@ -13,6 +13,7 @@ pub mod services;
 pub mod workspace;
 pub mod tokenizer;
 pub mod row_parser;
+pub mod util;
 
 use anyhow::Result;
 use log::{error, info, warn};

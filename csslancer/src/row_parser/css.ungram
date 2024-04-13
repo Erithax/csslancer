@@ -10,7 +10,7 @@
 // Legend:
 //   //          -- comment
 //   Name =      -- non-terminal definition
-//   'ident'     -- token (terminal)
+//   'identifier'     -- token (terminal)
 //   A B         -- sequence
 //   A | B       -- alternation
 //   A*          -- zero or more repetition
@@ -20,15 +20,179 @@
 
 
 
-//*************************//
-// Names, Paths and Macros //
-//*************************//
+
+SourceFile =
+    Todo
+
+// ========================== //
+// SELECTOR
+// ========================== //
+
+Selector = Todo
+SimpleSelector = Todo
+SelectorInterpolation = Todo
+SelectorCombinator = Todo
+SelectorCombinatorParent = Todo
+SelectorCombinatorSibling = Todo
+SelectorCombinatorAllSiblings = Todo
+SelectorCombinatorShadowPiercingDescendant = Todo
+SelectorClass = Todo
+SelectorIdentifier = Todo
+SelectorElementName = Todo
+SelectorPseudo = Todo
+
+SelectorAttribute = 
+    NamespacePrefix?
+    'identifier'
+    Operator
+    value:BinaryExpression
+
+// ========================== //
+// BODY DECLARATION
+// ========================== //
+
+BodyDeclaration =
+  RuleSet
+| Page
+| PageBoxMarginBox
+| ViewPort
+| Document
+| CustomPropertySet
+| Supports
+| FontFace
+| Media
+| Layer
+| Keyframe
+| KeyframeSelector
+| Container
+| PropertyAtRule
+| UnknownAtRule
+
+RuleSet = 
+    Selector*
+
+Page = 
+    Todo
+
+PageBoxMarginBox = 
+    Todo
+
+ViewPort = 
+    Todo
+
+Document =
+    Todo
+
+CustomPropertySet =
+    Todo
+    
+Supports = 
+    Todo
+
+FontFace = 
+    Todo
+
+Media = 
+    Todo
+
+Layer =
+    names:Todo
+
+Keyframe =
+    Todo
+    'identifier'
+
+KeyframeSelector = 
+    Todo
+
+Container =
+    Todo
+
+PropertyAtRule = 
+    name:'identifier'
+
+UnknownAtRule =
+    name:Todo
 
 
+// ========================== //
+// ABSTRACT DECLARATION
+// ========================== //
 
-Dimension = 
-    'number' 'ident'
+AbstractDeclaration = 
+  Declaration
+| XcssVariableDeclaration // (see xcss)
 
-Percentage = 
-    'number' '%'
+DeclarationCommon =
+    Property
+    Expression
+    // XCSS NestedProperties?
+    (Declaration | CustomPropertyDeclaration)
 
+Declaration = 
+    Todo
+
+CustomPropertyDeclaration = 
+    CustomPropertySet
+
+// XCSS NODE
+XcssVariableDeclaration =
+    Todo
+
+// ========================== //
+// MISCELLANEOUS
+// ========================== //
+
+Declarations = Todo
+
+Property = 
+    'identifier'
+
+Expression = 
+    Todo
+
+BinaryExpression = 
+    left:Term
+    operator:Operator
+    right:Term
+
+Term = 
+    Operator?
+    Expression
+
+Operator = 
+    Todo
+
+StringLiteral =
+    Todo
+
+UriLiteral =
+    Todo
+
+Function = 
+    'identifier'
+
+NumericValue = Todo
+HexColorValue = Todo
+RatioValue = Todo
+Prio = Todo
+Import = Todo
+Namespace = Todo
+MediaQuery = Todo
+MediaCondition = Todo
+MediaFeature = Todo
+FunctionArgument = 
+    'identifier'
+    value:Todo
+SupportsCondition = 
+    '(' ')'
+NamespacePrefix = 
+    Todo
+GridLine = Todo
+UnicodeRange = 
+    range_start:Todo
+    range_end:Todo
+LayerNameList = Todo
+
+Todo =
+    'identifier'

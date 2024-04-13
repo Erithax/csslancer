@@ -159,18 +159,18 @@ pub enum TokenKind {
     // More specific VSCode CSS language Service tokens
     // ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    EMS,
-    EXS,
-    Length,
-    Angle,
-    Time,
-    Freq,
-    Resolution,
-    EscapedJavascript,
-    BadEscapedJavascript,
-    SingleLineComment,
-    ContainerQueryLength,
-    CustomToken,
+    // EMS,
+    // EXS,
+    // Length,
+    // Angle,
+    // Time,
+    // Freq,
+    // Resolution,
+    // EscapedJavascript,
+    // BadEscapedJavascript,
+    // SingleLineComment,
+    // ContainerQueryLength,
+    // CustomToken,
 
     // FROM EARLIER CSS SPEC
     // /// `~=` [`<include-match-token>`](https://drafts.csswg.org/css-syntax/#include-match-token-diagram)
@@ -653,7 +653,7 @@ impl Cursor<'_> {
     /// which itself is only called as a special case for parsing the [unicode range descriptor](https://drafts.csswg.org/css-fonts-4/#descdef-font-face-unicode-range)
     /// this single invocation in the entire language is due to a bad syntax design in early CSS.
     fn consume_unicode_range(&mut self) -> TokenKind {
-        self.bump_two();
+        self.bump_two(); // U+
         let mut count_hex_question = 0;
         self.bump_while_first(|ch| {
             if ch.is_ascii_hexdigit() && count_hex_question < 6 {
@@ -673,7 +673,6 @@ impl Cursor<'_> {
                 }
                 return false
             });
-            return TokenKind::UnicodeRange
         }
         if self.first() == '-' && self.second().is_ascii_hexdigit() {
             self.bump();
@@ -685,16 +684,15 @@ impl Cursor<'_> {
                 }
                 false
             });
-            return TokenKind::UnicodeRange
         }
         return TokenKind::UnicodeRange
     }
 
     #[inline]
     /// https://drafts.csswg.org/css-syntax/#starts-a-unicode-range
-    /// PRECONDITION: ALREADY CONSUMED U+0055 (U) or U+0075 (u)
     fn is_unicode_range_start(&self) -> bool {
-        self.first() == '+' && match self.second() {'?' => true, c if c.is_ascii_hexdigit() => true, _ => false} 
+        debug_assert!(matches!(self.first(), 'u' | 'U'));
+        self.second() == '+' && match self.third() {'?' => true, c if c.is_ascii_hexdigit() => true, _ => false} 
     }
 
 

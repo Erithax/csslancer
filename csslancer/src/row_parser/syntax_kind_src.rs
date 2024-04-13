@@ -4,6 +4,11 @@ pub(crate) struct SyntaxKindsSrc<'a> {
     pub(crate) punct: &'a [(&'a str, &'a str)],
     pub(crate) tokens: &'a [&'a str],
     pub(crate) dimensions: &'a str,
+    pub(crate) at_keywords: &'a str,
+    pub(crate) contextual_ids: &'a [&'a str],
+    pub(crate) contextual_funcs: &'a [&'a str],
+    pub(crate) contextual_hash: &'a [&'a str],
+    pub(crate) contextual_dims: &'a [&'a str],
     pub(crate) css_nodes: &'a [&'a str],
     pub(crate) xcss_nodes: &'a [&'a str], // in scss and less
     pub(crate) scss_nodes: &'a [&'a str],
@@ -22,6 +27,7 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
     punct: &[
         (";", "SEMICOLON"),
         (",", "COMMA"),
+        ("!", "EXCLAMATION"),
         ("(", "L_PAREN"),
         (")", "R_PAREN"),
         ("{", "L_CURLY"),
@@ -52,7 +58,6 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         ("=", "EQ"),
         ("==", "EQ2"),
         ("=>", "FAT_ARROW"),
-        ("!", "BANG"),
         ("!=", "NEQ"),
         ("-", "MINUS"),
         ("->", "THIN_ARROW"),
@@ -60,11 +65,13 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         (">=", "GTEQ"),
         ("+=", "PLUSEQ"),
         ("-=", "MINUSEQ"),
-        ("|=", "PIPEEQ"),
-        ("&=", "AMPEQ"),
-        ("^=", "CARETEQ"),
-        ("/=", "SLASHEQ"),
-        ("*=", "STAREQ"),
+
+        ("|=", "OPERATOR_DASHMATCH"),
+        ("~=", "OPERATOR_INCLUDES"),
+        ("^=", "OPERATOR_PREFIX"),
+        ("$=", "OPERATOR_SUFFIX"),
+        ("*=", "OPERATOR_SUBSTRING"),
+        
         ("%=", "PERCENTEQ"),
         ("&&", "AMP2"),
         ("||", "PIPE2"),
@@ -73,11 +80,76 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         ("<<=", "SHLEQ"),
         (">>=", "SHREQ"),
     ],
-    dimensions: "em ex px cm mm in pt pc deg rad grad ms s hz khz % fr dpi dpcm cqw cqh cqi cqb cqmin cqmax",
-    tokens: &["ERROR", "IDENT", "WHITESPACE", "COMMENT"],
+    // -ms-keyframes: https://github.com/CSSLint/csslint/issues/295
+    // margin-at-rule: https://developer.mozilla.org/en-US/docs/Web/CSS/@page#margin_at-rules
+    at_keywords: "
+        unknown
+        import 
+        namespace 
+        font-face 
+        viewport -ms-viewport -o-viewport 
+        keyframes -webkit-keyframes -moz-keyframes -o-keyframes
+        property
+        layer
+        supports
+        media
+        page
+        -moz-document
+        container
+        margin-at-rule", 
+    dimensions: "unknown em ex px cm mm in pt pc deg rad grad ms s hz khz % fr dpi dpcm cqw cqh cqi cqb cqmin cqmax",
+    tokens: &["error", "identifier", "string", "url", "bad_string", "bad_url", /*"ATKEYWORD",*/ "unrestricted_hash", "id_hash", "number", /*"DIMENSION",*/ "charset", "whitespace", "comment", "unicode_range", "function", "cdo", "cdc"],
+    contextual_ids: &[
+        "not",
+        "and",
+        "or",
+        "screen",
+        "only",
+        "deep",
+        "attrib_i",
+        "attrib_s",
+        "an_plus_b_syntax_an",
+        "of",
+        "important",
+        "progid",
+        "urlprefix",
+        "valid_custom_prop",
+    ],
+    contextual_hash: &[
+        "valid_hex",
+    ],
+    contextual_funcs: &[
+        "layer",
+        "supports",
+        "style",
+        "url",
+    ],
+    contextual_dims: &[
+        "an_plus_b", // mapped on same SyntaxKind as contextual Id's an_plus_b
+    ],
     css_nodes: stringify_many!{
+        TODO
+        UNDEFINED
         SOURCE_FILE
+
+        // BODY DECLARATION
         RULE_SET
+        PAGE
+        PAGE_BOX_MARGIN_BOX
+        VIEW_PORT
+        DOCUMENT
+        CUSTOM_PROPERTY_SET
+        SUPPORTS
+        FONT_FACE
+        MEDIA
+        LAYER
+        KEYFRAME
+        KEYFRAME_SELECTOR
+        CONTAINER
+        PROPERTY_AT_RULE
+        UNKNOWN_AT_RULE
+        // --
+        // SELECTOR
         SELECTOR
         SIMPLE_SELECTOR
         SELECTOR_INTERPOLATION
@@ -86,14 +158,20 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         SELECTOR_COMBINATOR_SIBLING
         SELECTOR_COMBINATOR_ALL_SIBLINGS
         SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT
-        PAGE
-        PAGE_BOX_MARGIN_BOX
         SELECTOR_CLASS
         SELECTOR_IDENTIFIER
         SELECTOR_ELEMENT_NAME
         SELECTOR_PSEUDO
         SELECTOR_ATTRIBUTE
-        DECLARATION
+        // --
+
+        // ABSTRACT DECLARATION
+        DECLARATION_COMMON
+        DECLARATION 
+        CUSTOM_PROPERTY_DECLARATION
+        XCSS_VARIABLE_DECLARATION
+        // -- 
+
         DECLARATIONS
         PROPERTY
         EXPRESSION
@@ -102,35 +180,23 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         OPERATOR
         STRING_LITERAL
         URI_LITERAL
-        FUNCTION
         NUMERIC_VALUE
         HEX_COLOR_VALUE
         RATIO_VALUE
         PRIO
-        MEDIA
-        KEYFRAME
-        FONT_FACE
         IMPORT
         NAMESPACE
         MEDIA_QUERY
         MEDIA_CONDITION
         MEDIA_FEATURE
+        FUNCTION_WITH_ARGS
         FUNCTION_ARGUMENT
-        KEYFRAME_SELECTOR
-        VIEWPORT
-        DOCUMENT
-        CUSTOM_PROPERTY_DECLARATION
-        CUSTOM_PROPERTY_SET
-        SUPPORTS
         SUPPORTS_CONDITION
         NAMESPACE_PREFIX
         GRID_LINE
-        UNKNOWN_AT_RULE
-        UNICODE_RANGE
-        LAYER
         LAYER_NAME_LIST
-        PROPERTY_AT_RULE
-        CONTAINER
+        LAYER_NAME
+
         //VALUE
         //INVOCATION
         //AT_APPLY_RULE
@@ -140,7 +206,6 @@ pub(crate) const SYNTAX_KINDS_SRC: SyntaxKindsSrc<'_> = SyntaxKindsSrc {
         FUNCTION_PARAMETER
         MIXIN_DECLARATION
         MIXIN_REFERENCE
-        VARIABLE_DECLARATION
     },
     scss_nodes: stringify_many!{
         NESTED_PROPERTIES

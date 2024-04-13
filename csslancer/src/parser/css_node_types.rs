@@ -262,7 +262,7 @@ pub struct FunctionDeclaration {
 
 #[derive(Debug, PartialEq)]
 pub struct Keyframe {
-    pub keyword: NodeId,    // any
+    pub keyword: NodeId,    // keyword
     pub identifier: NodeId, // Identifier
 }
 impl CssNodeType {

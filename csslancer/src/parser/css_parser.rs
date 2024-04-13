@@ -393,12 +393,10 @@ impl Parser {
         resync_stop_tokens: Option<&[TokenType]>,
     ) -> bool {
         loop {
-            if resync_tokens.is_some() && resync_tokens.unwrap().contains(&self.token.token_type) {
+            if resync_tokens.is_some_and(|rts| rts.contains(&self.token.token_type)) {
                 self.consume_token();
                 return true;
-            } else if resync_stop_tokens.is_some()
-                && resync_stop_tokens.unwrap().contains(&self.token.token_type)
-            {
+            } else if resync_stop_tokens.is_some_and(|rts| rts.contains(&self.token.token_type)) {
                 return true;
             } else if self.token.token_type == TokenType::EOF {
                 return false;
