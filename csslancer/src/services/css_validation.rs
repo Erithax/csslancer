@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use crate::interop::csslancer_to_client::offset_to_position;
-use crate::parser::css_nodes::{Level, Marker};
+use crate::{interop::csslancer_to_client::offset_to_position, row_parser::syntax_error::SyntaxError};
 use crate::workspace::FsError;
 use itertools::Itertools;
 use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Range, Url};
+use rowan::TextSize;
 use tracing::trace;
 
 use super::CssLancerServer;
@@ -17,56 +17,28 @@ impl CssLancerServer {
         let diags: Vec<Diagnostic> = {
             let src = self.source_read(url).await?;
 
-            let l = "TREE: ".to_string() + &src.tree.fancy_string();
-            trace!(name: "TREE", tree = l);
+            let errors = src.parse.errors();
 
-            let mut markers = Vec::new();
-
-            use crate::parser::css_nodes::CssNode;
-            use ego_tree::NodeRef;
-            fn append_issues_rec(node: &NodeRef<CssNode>, issues: &mut Vec<Marker>) {
-                issues.append(&mut node.value().issues.clone());
-                node.children()
-                    .for_each(|ch| append_issues_rec(&ch, issues));
-            }
-
-            append_issues_rec(&src.tree.0 .0.root(), &mut markers);
-
-            // TODO: lints
-            let m = markers
-                .iter()
-                .map(|m| format!("{:?}", m.error))
-                .fold("".to_string(), |acc, nex| acc + "\n" + &nex);
-            trace!(name: "MARKERS", markers = m);
-
-            let to_diagnostic = |marker: &Marker| -> Diagnostic {
+            let to_diagnostic = |se: &SyntaxError| -> Diagnostic {
+                let (start, end) = (se.range().start().into(), se.range().end().into());
                 let range = Range::new(
-                    offset_to_position(marker.offset, self.const_config().position_encoding, &src),
-                    offset_to_position(
-                        marker.offset + marker.length,
-                        self.const_config().position_encoding,
-                        &src,
-                    ),
+                    offset_to_position(start, self.const_config().position_encoding, &src),
+                    offset_to_position(end, self.const_config().position_encoding, &src),
                 );
                 return Diagnostic::new(
                     range,
-                    Some(if marker.level == Level::Warning {
-                        DiagnosticSeverity::WARNING
-                    } else {
-                        DiagnosticSeverity::ERROR
-                    }),
-                    Some(NumberOrString::String(marker.error.issue().rule.id.clone())),
+                    Some(DiagnosticSeverity::WARNING),
+                    Some(NumberOrString::String(se.to_string())),
                     Some("csslancer".to_owned()),
-                    marker.message.clone() + "|" + &marker.error.issue().rule.message,
+                    se.to_string(),
                     None,
                     None,
                 );
             };
 
-            markers
+            errors
                 .into_iter()
-                .filter(|marker| marker.level != Level::Ignore)
-                .sorted_unstable_by_key(|marker| marker.offset)
+                .sorted_unstable_by_key(|se| <TextSize as Into<u32>>::into(se.range().start()))
                 .map(|e| to_diagnostic(&e))
                 .collect()
         };

@@ -5,13 +5,17 @@ use tower_lsp::lsp_types::{
     Registration, SemanticToken, SemanticTokensEdit, SemanticTokensFullOptions,
     SemanticTokensLegend, SemanticTokensOptions, Unregistration,
 };
+use rowan::SyntaxNode;
 
-use crate::parser::css_nodes::{CssNode, CssNodeTree};
-use crate::workspace::source::Source;
+use crate::{row_parser::nodes_types::CssLanguage, workspace::source::Source};
 
-use self::csslancer_tokens::TokenType;
+use self::csslancer_tokens::SemTokenKind;
 use self::delta::token_delta;
 use self::token_encode::encode_tokens;
+use crate::row_parser::{
+    self,
+    syntax_kind_gen::SyntaxKind,
+};
 
 use super::CssLancerServer;
 
@@ -23,7 +27,7 @@ mod token_encode;
 
 pub fn get_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
-        token_types: TokenType::iter().map(Into::into).collect(),
+        token_types: SemTokenKind::iter().map(Into::into).collect(),
         token_modifiers: Vec::new(),
     }
 }
@@ -62,7 +66,7 @@ impl CssLancerServer {
     pub fn get_semantic_tokens_full(&self, source: &Source) -> (Vec<SemanticToken>, String) {
         let encoding = self.const_config().position_encoding;
 
-        let tokens = tokenize_tree(&source.tree);
+        let tokens = tokenize_tree(source.parse.syntax_node());
 
         let encoded_tokens = encode_tokens(tokens, source, encoding);
         let output_tokens = encoded_tokens.map(|(token, _)| token).collect_vec();
@@ -97,43 +101,42 @@ impl CssLancerServer {
     }
 }
 
-fn tokenize_node_rec(tree: &CssNodeTree, node_id: NodeId) -> Box<dyn Iterator<Item = Token> + '_> {
-    let node = tree.0.get(node_id).unwrap();
-    let is_leaf = node.has_children();
+fn tokenize_node_rec(syntax_node: SyntaxNode<CssLanguage>) -> Box<dyn Iterator<Item = Token>> {
+    let is_leaf = syntax_node.children().count() == 0;
 
-    let node_token = token_type_from_node(node.value())
-        .or_else(|| is_leaf.then_some(TokenType::Text))
+    let node_token: std::option::IntoIter<Token> = sem_token_kind_from_syntax_node(&syntax_node)
+        .or_else(|| is_leaf.then_some(SemTokenKind::Text))
         .map(|token_type| {
             Token::new(
                 token_type,
-                node.value().offset,
-                tree.get_text(node_id).to_owned(),
+                syntax_node.text_range().start().into(),
+                syntax_node.text().to_string(),
             )
         })
         .into_iter();
 
-    let children = node
+    let children = syntax_node
         .children()
-        .flat_map(|ch| tokenize_node_rec(tree, ch.id()));
+        .flat_map(|ch| tokenize_node_rec(ch));
 
     Box::new(node_token.chain(children))
 }
 
 /// Tokenize a node and its children
-fn tokenize_tree(tree: &CssNodeTree) -> Box<dyn Iterator<Item = Token> + '_> {
-    return tokenize_node_rec(tree, tree.0 .0.root().id());
+fn tokenize_tree(syntax_node: SyntaxNode<CssLanguage>) -> Box<dyn Iterator<Item = Token>> {
+    tokenize_node_rec(syntax_node)
 }
 
 /// `offset` in csslancer (Utf-8) space
 #[derive(Debug, Clone)]
 pub struct Token {
-    pub token_type: TokenType,
+    pub token_type: SemTokenKind,
     pub offset: usize,
     pub text: String,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, offset: usize, text: String) -> Self {
+    pub fn new(token_type: SemTokenKind, offset: usize, text: String) -> Self {
         Self {
             token_type,
             offset,
@@ -147,76 +150,42 @@ impl Token {
 ///
 /// In tokenization, returning `Some` stops recursion, while returning `None` continues and attempts
 /// to tokenize each of `node`'s children. If there are no children, `Text` is taken as the default.
-fn token_type_from_node(node: &CssNode) -> Option<TokenType> {
-    use crate::parser::css_node_types::CssNodeType::*;
+fn sem_token_kind_from_syntax_node(syntax_node: &SyntaxNode<CssLanguage>) -> Option<SemTokenKind> {
+    use SyntaxKind::*;
 
-    match node.node_type {
-        Undefined
-        | ROOT
-        | Nodelist
-        | _BodyDeclaration(..)
-        | _AbstractDeclaration(..)
-        | _Invocation(..)
-        | Stylesheet
-        | Selector
-        | SimpleSelector
-        | SelectorInterpolation
-        | Declarations => None,
-        SelectorCombinator
-        | SelectorCombinatorParent
-        | SelectorCombinatorSibling
-        | SelectorCombinatorAllSiblings
-        | SelectorCombinatorShadowPiercingDescendant => Some(TokenType::Operator),
-        Identifier(..) => Some(TokenType::Ref),
-        ClassSelector | IdentifierSelector | PseudoSelector | AttributeSelector(..) => {
-            Some(TokenType::Punctuation)
-        }
-        ElementNameSelector => Some(TokenType::ElementName),
-        Property(..) => Some(TokenType::Property),
-        Expression => None,
-        Operator => Some(TokenType::Operator),
-        StringLiteral | URILiteral => Some(TokenType::String),
-        EscapedValue => Some(TokenType::Escape),
-        NumericValue | HexColorValue | RatioValue => Some(TokenType::Number),
-        Prio => Some(TokenType::Important),
-        Interpolation => Some(TokenType::Interpolated),
-
-        ExtendsReference
-        | SelectorPlaceholder
-        | Debug
-        | MixinContentReference
-        | Import
-        | Namespace
-        | ReturnStatement
-        | MediaQuery
-        | MediaCondition
-        | MediaFeature
-        | FunctionParameter
-        | FunctionArgument(..)
-        | AtApplyRule
-        | ListEntry
-        | SupportsCondition(..)
-        | NamespacePrefix
-        | GridLine
-        | Plugin
-        | Use
-        | ModuleConfiguration
-        | Forward
-        | ForwardVisibility
-        | Module
-        | UnicodeRange(..)
-        | LayerNameList
-        | LayerName
-        | VariableDeclaration(..)
-        | VariableName
-        | MixinReference(..)
-        | BinaryExpression(..)
-        | Term(..)
-        | Value
-        | LessGuard
-        | Variable
-        | CustomPropertyValue
-        | Medialist => None,
+    match syntax_node.kind() {
+        SELECTOR_COMBINATOR
+        | SELECTOR_COMBINATOR_ALL_SIBLINGS
+        | SELECTOR_COMBINATOR_PARENT
+        | SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT
+        | SELECTOR_COMBINATOR_SIBLING
+        | OPERATOR_DASHMATCH
+        | OPERATOR_INCLUDES
+        | OPERATOR_PREFIX
+        | OPERATOR_SUFFIX
+        | OPERATOR_SUBSTRING
+        | STAR
+        | PLUS
+        | SLASH
+        | MINUS
+        | EQ => Some(SemTokenKind::Operator),
+        IDENTIFIER => Some(SemTokenKind::Ref),
+        R_CURLY |
+        L_CURLY |
+        R_PAREN | 
+        L_PAREN |
+        R_BRACK |
+        L_BRACK |
+        DOT |
+        COMMA |
+        SEMICOLON |
+        COLON => Some(SemTokenKind::Punctuation),
+        PROPERTY => Some(SemTokenKind::Property),
+        STRING | URL | BAD_STRING | BAD_URL => Some(SemTokenKind::String),
+        NUMERIC_VALUE | HEX_COLOR_VALUE | RATIO_VALUE  => Some(SemTokenKind::Number),
+        k if k.is_dimension() => Some(SemTokenKind::Number),
+        PRIO => Some(SemTokenKind::Important),
+        _ => {None}
     }
 }
 

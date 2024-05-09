@@ -24,7 +24,7 @@ const IMPORTANT: SemanticTokenType = SemanticTokenType::new("important");
 
 #[derive(Debug, Clone, Copy, EnumIter)]
 #[repr(u32)]
-pub enum TokenType {
+pub enum SemTokenKind {
     // Standard LSP types
     Comment,
     String,
@@ -59,9 +59,9 @@ pub enum TokenType {
     Important,
 }
 
-impl From<TokenType> for SemanticTokenType {
-    fn from(token_type: TokenType) -> Self {
-        use TokenType::*;
+impl From<SemTokenKind> for SemanticTokenType {
+    fn from(token_type: SemTokenKind) -> Self {
+        use SemTokenKind::*;
 
         match token_type {
             Comment => Self::COMMENT,

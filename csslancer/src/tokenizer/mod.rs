@@ -10,6 +10,7 @@
 
 mod cursor;
 mod test;
+pub mod extra;
 
 use cursor::Cursor;
 use cursor::EOF_CHAR;
@@ -633,9 +634,8 @@ impl Cursor<'_> {
                     }
                     false
                 });
-                println!("f {} s{} t{}", self.first(), self.second(), self.third());
                 if is_white_space(self.first()) {self.bump();} 
-                let hex_val = hex_string_to_num(&hex_str).unwrap();
+                let hex_val: u32 = hex_string_to_num(&hex_str).unwrap();
                 if hex_val == 0 || is_surrogate_unicode_code_point(hex_val) || exceeds_max_unicode_code_point(hex_val) {
                     todo!("return replacement char?")
                 }

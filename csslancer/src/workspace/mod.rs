@@ -79,11 +79,11 @@ impl Workspace {
 
         match change.range {
             Some(lsp_range) => {
-                let range = ClientRange::new(lsp_range, position_encoding).into_range_on(source);
-                source.edit(range, &replacement);
+                let range: std::ops::Range<usize> = ClientRange::new(lsp_range, position_encoding).into_range_on(source);
+                source.edit(range, replacement);
             }
             None => {
-                source.replace(&replacement);
+                source.replace(replacement);
             }
         }
     }

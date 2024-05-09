@@ -279,12 +279,12 @@ impl Parser<'_> {
             | SyntaxKind::SCSS_DEBUG
             //| SyntaxKind::AT_APPLY_RULE 
             => true,
-            SyntaxKind::XCSS_VARIABLE_DECLARATION => todo!("need to call self.needs_semicolon"),
+            SyntaxKind::DECLARATION_XCSS_VARIABLE => todo!("need to call self.needs_semicolon"),
             SyntaxKind::XCSS_MIXIN_REFERENCE => todo!("need to call self.content.is_none()"),
             // declaration common
-            SyntaxKind::DECLARATION_COMMON => panic!("no call Parser::needs_semicolon on DECLARATION_COMMON! call on variants instead"),
-            SyntaxKind::CUSTOM_PROPERTY_DECLARATION => true,
-            SyntaxKind::DECLARATION => false, // todo!("xcss: need to call self.nested_properties.is_none()"),
+            SyntaxKind::DECLARATION => panic!("no call Parser::needs_semicolon on DECLARATION! call on variants instead"),
+            SyntaxKind::DECLARATION_CUSTOM_PROPERTY => true,
+            SyntaxKind::DECLARATION_BASIC => false, // todo!("xcss: need to call self.nested_properties.is_none()"),
             // --
             _ => panic!("unhandled Parser::needs_semicolon_after(sk: {:?})", sk),
         }
@@ -301,9 +301,15 @@ impl Parser<'_> {
             return None
         }
 
-        while let Some((kind, ..)) = parse_declaration_func(self) {
+        while let Some((mut kind, ..)) = parse_declaration_func(self) {
             if self.at(SyntaxKind::R_CURLY) {
                 break;
+            }
+
+            if kind == SyntaxKind::DECLARATION {
+                kind = SyntaxKind::DECLARATION_BASIC;
+                // FIXME: should check inner declaration type
+                
             }
 
             if Self::needs_semicolon_after(kind) && !self.eat(T![;]) {
@@ -333,7 +339,8 @@ impl Parser<'_> {
             return self.fintio_recover(m, ParseError::LeftCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None)
         }
         
-        m.complete(self, SyntaxKind::UNDEFINED);
+        //m.complete(self, SyntaxKind::UNDEFINED);
+        m.abandon(self); // attack child DECLARATIONS to parent as is. Incremental reparsing relies on this.
         Ok(())
     }
 
@@ -358,22 +365,26 @@ impl Parser<'_> {
     }
 
     pub fn parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<Result<(), ()>> {
+        let m = self.start();
         if self.try_parse_custom_property_declaration_opt(stop_tokens).is_some() {
-            return Some(Ok(()))
+            return Some(self.varnish(m, SyntaxKind::DECLARATION))
         }
 
-        let m = self.start();
+        let d = self.start();
 
         if self.parse_property_opt().is_none() {
+            d.rollback(self);
             m.rollback(self);
             return None
         }
 
         if !self.eat(T![:]) {
+            d.rollback(self);
             return Some(self.fintio_recover(m, ParseError::ColonExpected, Some(&[T![:]]), Some(&[T![;]])))
         }
 
         if self.parse_expr_opt(false).is_none() {
+            d.rollback(self);
             return Some(self.finito(m, ParseError::PropertyValueExpected))
         }
 
@@ -383,6 +394,8 @@ impl Parser<'_> {
         //     todo!("to err or not to err");
         //     return Some(self.finito(m, ParseError::SemiColonExpected))
         // }
+
+        self.varnish(d, SyntaxKind::DECLARATION_BASIC);
 
         Some(self.varnish(m, SyntaxKind::DECLARATION))
     }
@@ -422,7 +435,7 @@ impl Parser<'_> {
                         prop_set.complete(self, SyntaxKind::CUSTOM_PROPERTY_SET);
                         //assert!(self.eat(T![;])); // not part of the declaration, but useful information for code assist
                         
-                        m.complete(self, SyntaxKind::CUSTOM_PROPERTY_DECLARATION);
+                        m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
                         return Some(Ok(()))
                     }
                 }
@@ -441,7 +454,7 @@ impl Parser<'_> {
                 if toks.into_iter().any(|t| self.at(t)) {
                     //assert!(self.eat(T![;]));
                     expr.abandon(self);
-                    m.complete(self, SyntaxKind::CUSTOM_PROPERTY_DECLARATION);
+                    m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
                     return Some(Ok(()))
                 }
             }
@@ -456,7 +469,7 @@ impl Parser<'_> {
             return Some(self.finito(m, ParseError::PropertyValueExpected))
         }
 
-        m.complete(self, SyntaxKind::CUSTOM_PROPERTY_DECLARATION);
+        m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
         return Some(Ok(()))
     }
 
@@ -548,7 +561,7 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn try_parse_declaration(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<Result<(), ()>> {
+    pub fn try_parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<Result<(), ()>> {
         let m = self.start();
         if self.parse_property_opt().is_some() && self.eat(T![:]) {
             // looks like a declaration, rollback and go ahead with real parse
@@ -635,7 +648,7 @@ impl Parser<'_> {
         }
         if self.eat_contextual_kw(T![cxfunc_supports]) {
             self
-                .try_parse_declaration(None)
+                .try_parse_declaration_opt(None)
                 .or_else(|| Some(self.parse_supports_condition()));
 
             if !self.eat(SyntaxKind::R_PAREN) {
@@ -710,7 +723,6 @@ impl Parser<'_> {
         if !matches!(self.current(), T![@keyframes] | T![@_o_keyframes] | T![@_moz_keyframes] | T![@_webkit_keyframes]) {
             return None
         }
-
 
         let m = self.start();
         self.bump_any();
@@ -824,7 +836,7 @@ impl Parser<'_> {
         if self.parse_ident_opt(Some(&[ReferenceType::Property])).is_none() {
             return Some(self.finito(m, ParseError::IdentifierExpected))
         }
-        self.parse_body(|s: &mut Self| s.parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)));
+        self.parse_body(|s: &mut Self| s.parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION_CUSTOM_PROPERTY, e)));
         Some(self.varnish(m, SyntaxKind::PROPERTY_AT_RULE))
     }
 
@@ -857,7 +869,7 @@ impl Parser<'_> {
             // if nested, the body can contain rulesets, but also declarations
             return self
                 .parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration(None).map(|e| (SyntaxKind::DECLARATION, e)))
+                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)))
                 .or_else(|| self.parse_stylesheet_statement_opt(true)) 
         }
         return self.parse_stylesheet_statement_opt(false)
@@ -915,7 +927,7 @@ impl Parser<'_> {
             // if nested, the body can contain rulesets, but also declarations
             return self
                 .parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration(None).map(|e| (SyntaxKind::DECLARATION, e)))
+                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)))
                 .or_else(|| self.parse_stylesheet_statement_opt(true));
         }
         return self.parse_stylesheet_statement_opt(false);
@@ -957,7 +969,7 @@ impl Parser<'_> {
         let m = self.start();
         if self.eat(SyntaxKind::L_PAREN) {
             
-            if self.try_parse_declaration(Some(&[SyntaxKind::R_PAREN])).is_none() {
+            if self.try_parse_declaration_opt(Some(&[SyntaxKind::R_PAREN])).is_none() {
                 self.parse_supports_condition(); 
                 // TODO: Unreachable in VSCode return self.finito(m, ParseError::ConditionExpected);
             }
@@ -1006,7 +1018,7 @@ impl Parser<'_> {
             // if nested, the body can contain rulesets, but also declarations
             return self
                 .try_parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration(None).map(|e| (SyntaxKind::RULE_SET, e)))
+                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::RULE_SET, e)))
                 .or_else(|| self.parse_stylesheet_statement_opt(true));
         }
         self.parse_stylesheet_statement_opt(false)
@@ -1541,7 +1553,7 @@ impl Parser<'_> {
     pub fn parse_operator_opt(&mut self) -> Option<()> {
         let m = self.start();
 
-        let mut make_sel_operator = |sk: SyntaxKind| (self.eat(sk)).then_some(sk);
+        let mut make_sel_operator = |sk: SyntaxKind| (self.eat(sk)).then_some(());
 
         if let Some(sk) = 
             make_sel_operator(SyntaxKind::OPERATOR_DASHMATCH).or_else(||
@@ -1550,7 +1562,7 @@ impl Parser<'_> {
             make_sel_operator(SyntaxKind::OPERATOR_PREFIX)).or_else(||
             make_sel_operator(SyntaxKind::OPERATOR_SUFFIX))
         {
-            self.varnish(m, sk);
+            self.varnish(m, SyntaxKind::OPERATOR);
             return Some(())
         }
 
@@ -1658,8 +1670,9 @@ impl Parser<'_> {
         if !self.at(T![id_hash]) {
             return None
         }
-        self.bump_remap(SyntaxKind::SELECTOR_IDENTIFIER);
-        Some(Ok(()))
+        let m = self.start();
+        self.bump_any();
+        Some(self.varnish(m, SyntaxKind::SELECTOR_IDENTIFIER))
     }
 
     pub fn parse_class_opt(&mut self) -> Option<Result<(), ()>> {
@@ -1760,7 +1773,7 @@ impl Parser<'_> {
             };
 
             if self.eat_contextual_kw(SyntaxKind::CXDIM_AN_PLUS_B) || self.eat_contextual_kw(SyntaxKind::CXID_AN_PLUS_B_SYNTAX_AN) {
-                self.eat(T![number]);
+                self.eat(T![number]) || (self.eat(T![+]) && self.eat(T![number]));
                 if self.eat_contextual_kw(T![cxid_of]) && try_as_selector(self).is_none() {
                     return Some(self.finito(m, ParseError::SelectorExpected))
                 }
@@ -1769,7 +1782,6 @@ impl Parser<'_> {
                 }
                 return Some(self.varnish(m, SyntaxKind::SELECTOR_PSEUDO))
             }
-
 
             let has_selector = try_as_selector(self).is_some();
 

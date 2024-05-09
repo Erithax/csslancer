@@ -1,10 +1,14 @@
 use std::ops::Range;
 
 use lsp_types::SelectionRange;
+use rowan::{SyntaxElement, TextSize};
 
 use crate::{
     interop::{csslancer_to_client, client_to_csslancer, LspPosition, LspPositionEncoding},
-    parser::{css_node_types::CssNodeType, css_nodes::NodeRefExt},
+    row_parser::{
+        self,
+        syntax_kind_gen::SyntaxKind,
+    },
     workspace::source::Source,
 };
 
@@ -43,39 +47,56 @@ impl CssLancerServer {
     ) -> SelectionRange {
         let offset = client_to_csslancer::position_to_offset(position, lsp_pos_enc, source);
 
+        let target = match source.parse.syntax_node().token_at_offset(TextSize::new(offset.try_into().unwrap())) {
+            rowan::TokenAtOffset::Single(s) => s,
+            rowan::TokenAtOffset::Between(a, b) => 
+                if a.kind().is_trivia() {
+                    b
+                } else if b.kind().is_trivia() {
+                    a
+                } else if b.kind().is_punct() && !a.kind().is_punct() {
+                    a
+                } else if a.kind().is_punct() && !b.kind().is_punct() {
+                    b
+                } else {
+                    b
+                }
+            rowan::TokenAtOffset::None => panic!("offset in document with no token!? {}", offset),
+        };
+
         let applicable_ranges =
-            if let Some(curr_node) = source.tree.0 .0.root().find_child_at_offset(offset, true) {
+            {
                 let mut res = Vec::new();
-                let mut curr_node_opt = Some(curr_node);
-                while let Some(curr_node) = curr_node_opt {
+                let mut curr_node_opt: Option<rowan::NodeOrToken<rowan::SyntaxNode<row_parser::nodes_types::CssLanguage>, rowan::SyntaxToken<row_parser::nodes_types::CssLanguage>>> = Some(SyntaxElement::Token(target));
+                while let Some(ref curr_node) = curr_node_opt {
                     if let Some(par) = curr_node.parent() {
-                        if curr_node.value().offset == par.value().offset
-                            && curr_node.value().length == par.value().length
+                        if <TextSize as Into<u32>>::into(curr_node.text_range().start()) == <TextSize as Into<u32>>::into(par.text_range().start())
+                            && curr_node.text_range().len() == par.text_range().len()
                         {
-                            curr_node_opt = Some(par);
+                            curr_node_opt = Some(SyntaxElement::Node(par));
                             continue;
                         }
                     }
 
-                    // The `{ }` part of `.a { }`
-                    if curr_node
-                        .value()
-                        .node_type
-                        .same_node_type(&CssNodeType::Declarations)
-                        && offset > curr_node.value().offset
-                        && offset < curr_node.value().end()
-                    {
-                        // Return `{ }` and the range inside `{` and `}`
-                        res.push((curr_node.value().offset + 1, curr_node.value().end() - 1));
+                    if matches!(curr_node.kind(), SyntaxKind::L_CURLY | SyntaxKind::R_CURLY | SyntaxKind::WHITESPACE) {
+                        curr_node_opt = curr_node.parent().and_then(|p| Some(SyntaxElement::Node(p)));
+                        continue
                     }
 
-                    res.push((curr_node.value().offset, curr_node.value().end()));
+                    // The `{ }` part of `.a { }`
+                    if curr_node.kind() == SyntaxKind::DECLARATIONS
+                        && offset > curr_node.text_range().start().into()
+                        && offset < curr_node.text_range().end().into()
+                    {
+                        // Return `{ }` and the range inside `{` and `}`
+                        res.push((<TextSize as Into<u32>>::into(curr_node.text_range().start()) + 1, <TextSize as Into<u32>>::into(curr_node.text_range().end()) - 1));
+                    }
 
-                    curr_node_opt = curr_node.parent();
+                    res.push((curr_node.text_range().start().into(), curr_node.text_range().end().into()));
+
+                    curr_node_opt = curr_node.parent().and_then(|p| Some(SyntaxElement::Node(p)));
                 }
                 res
-            } else {
-                Vec::new()
             };
 
         let mut current = None;
@@ -83,8 +104,8 @@ impl CssLancerServer {
             current = Some(SelectionRange {
                 range: csslancer_to_client::range(
                     Range {
-                        start: app_range.0,
-                        end: app_range.1,
+                        start: app_range.0 as usize,
+                        end: app_range.1 as usize,
                     },
                     source,
                     lsp_pos_enc,
@@ -119,6 +140,7 @@ impl CssLancerServer {
 mod css_selection_range_test {
 
     use lsp_types::Url;
+    use smol_str::ToSmolStr;
 
     use crate::config::PositionEncoding;
     use crate::interop::ClientRange;
@@ -138,26 +160,26 @@ mod css_selection_range_test {
         
         let position_encoding = PositionEncoding::Utf16;
 
-        let source = Source::new(Url::parse("test://foo/bar.css").unwrap(), content, 0);
+        let source = Source::new(Url::parse("test://foo/bar.css").unwrap(), &content, 0);
         let actual_ranges = ls.get_selection_ranges_with_enc(
             &source, 
             &[offset_to_position(offset, position_encoding, &source)],
             position_encoding,
         );
         assert_eq!(actual_ranges.len(), 1);
-        let mut offset_pairs: Vec<(usize, &str)> = Vec::new();
+        let mut offset_pairs = Vec::new();
         let mut curr_opt: Option<Box<SelectionRange>> = Some(Box::new(actual_ranges.into_iter().next().unwrap()));
         while let Some(curr) = curr_opt {
             let client_range = ClientRange::new(curr.range, position_encoding);
             offset_pairs.push((
                 position_to_offset(curr.range.start, position_encoding, &source), 
-                source.text_at(client_to_csslancer::range(&client_range, &source))
+                source.text_at(client_to_csslancer::range(&client_range, &source)).to_string()
             ));
             curr_opt = curr.parent;
         }
     
         message += &format!("{offset_pairs:?}\n but should give:\n{expected:?}\n");
-        assert_eq!(offset_pairs, expected, "{message}");
+        assert_eq!(offset_pairs.iter().map(|op| (op.0, op.1.as_str())).collect::<Vec<(usize, &str)>>(), expected, "{message}");
     }
 
     #[test]

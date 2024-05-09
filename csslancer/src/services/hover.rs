@@ -1,14 +1,21 @@
 use super::CssLancerServer;
 
 use lsp_types::{HoverContents, MarkedString, MarkupKind, Range};
+use smol_str::ToSmolStr;
 use tower_lsp::lsp_types::Hover;
 use tracing::trace;
+use rowan::{SyntaxNode, TextSize, TokenAtOffset};
 
 use crate::css_language_types::HoverSettings;
 use crate::data::entry::{get_entry_description, IEntry2};
-use crate::parser::css_node_types::{AbstractDeclaration, AbstractDeclarationType, BodyDeclaration, BodyDeclarationType, CssNodeType, Declaration};
-use crate::parser::css_nodes::{CssNode, NodeRefExt};
 use crate::interop::{csslancer_to_client, client_to_csslancer, LspPosition};
+use crate::row_parser::ast::AstNode;
+use crate::row_parser::nodes_gen;
+use crate::row_parser::{
+    self,
+    nodes_types::CssLanguage,
+    syntax_kind_gen::SyntaxKind,
+};
 use crate::workspace::source::Source;
 
 pub struct FlagOpts {
@@ -20,79 +27,88 @@ impl CssLancerServer {
     pub fn get_hover(&self, src: &Source, position: LspPosition, settings: &Option<HoverSettings>) -> anyhow::Result<Option<Hover>> {
         let position_encoding = self.const_config().position_encoding;
 
-        let get_lsp_range = |node: &CssNode| {
+        let t = src.parse.syntax_node();
+
+        let get_lsp_range = |node: SyntaxNode<CssLanguage>| {
+            let tr = node.text_range();
             return Some(Range {
-                start: csslancer_to_client::offset_to_position(node.offset, position_encoding, &src),
-                end: csslancer_to_client::offset_to_position(node.end(), position_encoding, &src),
+                start: csslancer_to_client::offset_to_position(tr.start().into(), position_encoding, &src),
+                end: csslancer_to_client::offset_to_position(tr.end().into(), position_encoding, &src),
             })
         };
 
         let offset = client_to_csslancer::position_to_offset(position, position_encoding, &src);
         trace!(offset = offset);
-        let node_path = src.tree.0.0.root().get_node_path(offset);
+        // node path (leaf first, root last)
+        fn get_node_path(sn: SyntaxNode<CssLanguage>, text_size: TextSize) -> Vec<SyntaxNode<CssLanguage>> { 
+            let target = match sn.token_at_offset(text_size) {
+                TokenAtOffset::Single(s) => {s},
+                TokenAtOffset::Between(a, b) => {
+                    b
+                }
+                TokenAtOffset::None => {
+                    panic!("no token?!");
+                }
+            };
+            target.parent_ancestors().collect::<Vec<SyntaxNode<CssLanguage>>>()
+        }
+        let node_path = get_node_path(src.parse.tree().syntax, TextSize::new(offset.try_into().unwrap()));
 
-        let np = node_path.clone().into_iter().fold("".to_owned(), |acc, nex| acc + &format!("{nex:?}"));
+        let np = node_path.clone().into_iter().fold("".to_owned(), |acc, nex| acc + &format!(">{nex:?}"));
         trace!(name: "node path", np = np);
+        println!("{np}");
 
         let mut hover = None;
         let mut flag_opts = None;
 
-        for node_id in node_path {
-            let node = src.tree.0.0.get(node_id).unwrap();
-            if node.value().node_type.same_node_type(&CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::Media
-            })) {
+        for syntax_node in node_path {
+            if syntax_node.kind() == SyntaxKind::MEDIA {
                 trace!("hovering media");
                 let reggy = regex::Regex::new("@media[^{]+").unwrap(); // TODO: check regex
-                let mut matches = reggy.find_iter(src.tree.get_text(node.id()));
-                assert!(reggy.find_iter(src.tree.get_text(node.id())).count() > 0);
+                let t = syntax_node.text().to_string();
+                let mut matches = reggy.find_iter(&t);
+                assert!(reggy.find_iter(&syntax_node.text().to_string()).count() > 0);
                 flag_opts = Some(FlagOpts {
                     is_media: true,
                     text: matches.next().unwrap().as_str().to_owned()
                 })
             }
 
-            if node.value().node_type.same_node_type(&CssNodeType::Selector) {
+            if nodes_gen::Selector::can_cast(syntax_node.kind()) {
                 trace!("hovering selector");
+                let selector = nodes_gen::Selector::cast(syntax_node).unwrap();
                 hover = Some(Hover {
-                    contents: HoverContents::Array(self.css_data_manager.selector_to_marked_string(&src.tree, node.id(), flag_opts)),
-                    range: get_lsp_range(node.value()),
+                    contents: HoverContents::Array(self.css_data_manager.selector_to_marked_string(&selector, flag_opts)),
+                    range: get_lsp_range(selector.syntax),
                 });
                 break
             }
 
-            if node.value().node_type.same_node_type(&CssNodeType::SimpleSelector) {
+            if nodes_gen::SimpleSelector::can_cast(syntax_node.kind()) {
                 trace!("hovering simple selector");
+                let simple_selector = nodes_gen::SimpleSelector::cast(syntax_node).unwrap();
                 // Some sass specific at rules such as `@at-root` are parsed as `SimpleSelector`
-                if !src.tree.get_text(node.id()).starts_with("@") {
+                if !simple_selector.syntax.text().to_string().starts_with("@") {
                     hover = Some(Hover {
-                        contents: HoverContents::Array(self.css_data_manager.selector_to_marked_string(&src.tree, node.id(), flag_opts)),
-                        range: get_lsp_range(node.value()),
+                        contents: HoverContents::Array(self.css_data_manager.simple_selector_to_marked_string(&simple_selector, flag_opts)),
+                        range: get_lsp_range(simple_selector.syntax),
                     });
                 }
                 break
             }
 
-            if node.value().node_type.same_node_type(&CssNodeType::_AbstractDeclaration(AbstractDeclaration {
-                semicolon_position: 0,
-                colon_position: 0,
-                abstract_decl_type: AbstractDeclarationType::Declaration(Declaration {
-                    property: node.id(),
-                    expr: node.id(),
-                    nested_properties: None,
-                    declaration_type: crate::parser::css_node_types::DeclarationType::Declaration
-                }),
-            })) {
+            if syntax_node.kind() == SyntaxKind::DECLARATION_BASIC {
                 trace!("hovering declaration");
-                let property_name = src.tree.get_text(node.value().node_type.unchecked_abst_decl_decl_decl_inner_ref().property);
-                if let Some(entry) = self.css_data_manager.get_property(property_name) {
+                let typed_node = nodes_gen::DeclarationBasic::cast(syntax_node).unwrap();
+                let property = typed_node.property().unwrap().syntax;
+                let property_name = property.text().to_string();
+                if let Some(entry) = self.css_data_manager.get_property(&property_name) {
                     if let Some(contents) = get_entry_description(IEntry2::Prop(entry), self.does_support_markdown(), settings) {
                         let s = contents.value.clone();
                         trace!(message = "entry found", contents = s);
                         hover = Some(Hover {
                             contents: HoverContents::Markup(contents),
-                            range: get_lsp_range(node.value()),
+                            range: get_lsp_range(property),
                         });
                     } else {
                         hover = None;
@@ -101,17 +117,14 @@ impl CssLancerServer {
                 continue;
             }
 
-            if let CssNodeType::_BodyDeclaration(BodyDeclaration {
-                declarations: None,
-                body_decl_type: BodyDeclarationType::UnknownAtRule(_)
-            }) = &node.value().node_type {
+            if syntax_node.kind() == SyntaxKind::UNKNOWN_AT_RULE {
                 trace!("hovering unknown at rule");
-                let at_rule_name = src.tree.get_text(node.id());
+                let at_rule_name = &syntax_node.text().to_smolstr();
                 if let Some(entry) = self.css_data_manager.get_at_directive(at_rule_name) {
                     if let Some(contents) = get_entry_description(IEntry2::AtDir(entry), self.does_support_markdown(), settings) {
                         hover = Some(Hover {
                             contents: HoverContents::Markup(contents),
-                            range: get_lsp_range(node.value()),
+                            range: get_lsp_range(syntax_node),
                         });
                     } else {
                         hover = None;
@@ -120,19 +133,19 @@ impl CssLancerServer {
                 continue;
             }
 
-            if node.value().node_type.same_node_type(&CssNodeType::PseudoSelector) {
+            if syntax_node.kind() == SyntaxKind::SELECTOR_PSEUDO {
                 trace!("hovering pseudoselector");
-                let selector_name = src.tree.get_text(node.id());
+                let selector_name = syntax_node.text().to_smolstr();
                 if let Some(entry) = if selector_name.starts_with("::") {
-                        self.css_data_manager.get_pseudo_element(selector_name)
+                        self.css_data_manager.get_pseudo_element(&selector_name)
                     } else {
-                        self.css_data_manager.get_pseudo_class(selector_name)
+                        self.css_data_manager.get_pseudo_class(&selector_name)
                     } 
                 {
                     if let Some(contents) = get_entry_description(IEntry2::AtDir(entry), self.does_support_markdown(), settings) {
                         hover = Some(Hover {
                             contents: HoverContents::Markup(contents),
-                            range: get_lsp_range(node.value()),
+                            range: get_lsp_range(syntax_node),
                         });
                     } else {
                         hover = None;
@@ -199,6 +212,7 @@ mod hover_test {
     use crate::{config::{ConstConfig, PositionEncoding}, css_language_types::HoverSettings, interop::csslancer_to_client, services::CssLancerServer, workspace::source::Source};
 
     fn assert_hover(value: &str, expected: Hover, language_id: &str, hover_settings: Option<HoverSettings>) {
+        println!("assert_hover({}, {:?}, {}, {:?}", value, expected, language_id, hover_settings);
         let offset = value.find('|').expect("internal error in test: `value` must contain '|' char");
         let value = value[0..offset].to_owned() + &value[offset + 1..];
         let ls = if language_id == "css" {CssLancerServer::new_dud()}
@@ -213,7 +227,10 @@ mod hover_test {
         }).unwrap();
         ls.client_supports_markdown.set(true).unwrap();
 
-        let source = Source::new(Url::parse("test://foo/bar.${language_id}").unwrap(), value, 0);
+        let source = Source::new(Url::parse("test://foo/bar.${language_id}").unwrap(), &value, 0);
+
+        println!("{}", source.parse.fancy_string());
+
         let hover_result = ls.get_hover(&source, csslancer_to_client::offset_to_position(offset, position_encoding, &source),  &hover_settings);
         assert!(hover_result.as_ref().is_ok_and(|h| h.is_some()));
 

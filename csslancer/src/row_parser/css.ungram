@@ -42,10 +42,12 @@ SelectorElementName = Todo
 SelectorPseudo = Todo
 
 SelectorAttribute = 
-    NamespacePrefix?
-    'identifier'
-    Operator
-    value:BinaryExpression
+  '['
+  NamespacePrefix?
+  'identifier'
+  Operator
+  BinaryExpression
+  ']'
 
 // ========================== //
 // BODY DECLARATION
@@ -121,22 +123,26 @@ UnknownAtRule =
 
 AbstractDeclaration = 
   Declaration
-| XcssVariableDeclaration // (see xcss)
+| DeclarationXcssVariable // (see xcss)
 
-DeclarationCommon =
+Declaration =
+  Todo // just here so this becomes a proper node instead of an enum node which has no Typed Node
+  DeclarationBasic
+| DeclarationCustomProperty
+
+DeclarationBasic =
     Property
-    Expression
+    ':'
     // XCSS NestedProperties?
-    (Declaration | CustomPropertyDeclaration)
+    Expression
 
-Declaration = 
-    Todo
-
-CustomPropertyDeclaration = 
+DeclarationCustomProperty = 
+    Property
+    ':'
     CustomPropertySet
 
 // XCSS NODE
-XcssVariableDeclaration =
+DeclarationXcssVariable =
     Todo
 
 // ========================== //

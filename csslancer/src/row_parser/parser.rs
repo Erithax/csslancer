@@ -8,7 +8,7 @@
 use std::cell::Cell;
 
 use drop_bomb::DropBomb;
-use crate::util::Limit;
+use ra_ap_limit::Limit;
 
 use super::{
     event::Event,
@@ -180,11 +180,11 @@ impl<'t> Parser<'t> {
         self.inp.contextual_kind(self.pos) == kw
     }
 
-    pub(crate) fn eat_contextual_kw(&mut self, kw: SyntaxKind) -> bool {
-        if !self.at_contextual_kw(kw) {
+    pub(crate) fn eat_contextual_kw(&mut self, kind: SyntaxKind) -> bool {
+        if !self.at_contextual_kw(kind) {
             return false
         }
-        self.bump_any(); // bumping SyntaxKind::Identifier
+        self.bump_remap(kind);
         true
     }
 

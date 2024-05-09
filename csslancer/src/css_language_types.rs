@@ -17,6 +17,7 @@ pub struct CompletionSettings {
 
 type AliasSettings = HashMap<String, String>;
 
+#[derive(Debug)]
 pub struct HoverSettings {
     pub documentation: bool,
     pub references: bool,

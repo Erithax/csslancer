@@ -2,9 +2,18 @@
 use ego_tree::{NodeId, NodeRef, Tree};
 use lsp_types::{LanguageString, MarkedString};
 use regex::{Regex, RegexBuilder};
+use rowan::SyntaxNode;
 
-use crate::{ext::TreeAttach, parser::{css_node_types::{BodyDeclaration, BodyDeclarationType, CssNodeType}, css_nodes::{CssNode, CssNodeTree}, css_scanner::Scanner}};
+use crate::row_parser::ast::AstNode;
+use crate::row_parser::nodes_types::{CssLanguage, SyntaxToken};
+use crate::tokenizer::extra::unescape;
+use crate::{ext::TreeAttach};
 use crate::data::data_manager::CssDataManager;
+use crate::row_parser::{
+    self,
+    syntax_kind_gen::SyntaxKind,
+    nodes_gen,
+};
 
 use super::hover::FlagOpts;
 
@@ -107,6 +116,8 @@ impl MarkedStringPrinter {
         if element.id() == tree.root().id() {
             if element.has_children() {
                 self.do_print(element.children(), 0);
+            } else {
+                self.do_print([element], 0);
             }
         } else {
             self.do_print([element], 0);
@@ -194,7 +205,7 @@ impl Quotes {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Specificity {
     // count of identifiers (e.g. `#app`)
     pub id: usize,
@@ -261,14 +272,13 @@ fn clone_to_root(ele_tree: &Tree<Element>, node_id: NodeId) -> (Tree<Element>, N
 // }
 
 // NON-recursively converts SimpleSelector node with `node_id` in `node_tree` to an `Tree<Element>`
-fn to_element(node_tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<&Tree<Element>>, parent_ele_id: Option<NodeId>) -> Tree<Element> {
+fn to_element(syntax_node: &nodes_gen::SimpleSelector, ele_tree: Option<&Tree<Element>>, parent_ele_id: Option<NodeId>) -> Tree<Element> {
     assert!(ele_tree.is_none() == parent_ele_id.is_none());
-    assert!(node_tree.0.0.root().children().count() == 1);
+    // assert!(node_tree.0.0.root().children().count() == 1);
+    //assert!(syntax_node.ancestors().last().unwrap().children().count() == 1);
 
-    let node = node_tree.get(node_id).unwrap();
+    //let node = node_tree.get(node_id).unwrap();
     
-    assert!(node.value().node_type.same_node_type(&CssNodeType::SimpleSelector));
-
     let mut res_tree = Tree::new(Element {
         attributes: Vec::new(),
     });
@@ -280,12 +290,13 @@ fn to_element(node_tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<&Tree<E
         };
     }
     
-    for child in node.children() {
-        use CssNodeType::*;
-        match &child.value().node_type {
-            SelectorCombinator => {
+    for child in syntax_node.syntax.children() {
+        use SyntaxKind::*;
+        match child.kind() {
+            SELECTOR_COMBINATOR => {
                 if let (Some(ele_tree), Some(parent_element)) = (&ele_tree, parent_ele_id) {
-                    let segments: Vec<&str> = node_tree.get_text(node.id()).split("&").collect();
+                    let text = child.text().to_string();
+                    let segments: Vec<&str> = text.split("&").collect();
                     
                     debug_assert!(segments.len() != 1);
                     if segments.len() == 1 {
@@ -312,50 +323,55 @@ fn to_element(node_tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<&Tree<E
                     }
                 };
             },
-            SelectorPlaceholder => {
-                if node_tree.get_text(child.id()) == "@at-root" {
+            SCSS_SELECTOR_PLACEHOLDER => {
+                if child.text() == "@at-root" {
                     todo!()
                 }
             },
-            ElementNameSelector => {
-                let text = node_tree.get_text(child.id());
-                res_val_mut!().add_attrib("name", if text == "*" {"element".to_owned()} else {unescape(text)});
+            SELECTOR_ELEMENT_NAME => {
+                let text = child.text();
+                res_val_mut!().add_attrib("name", if text == "*" {"element".to_owned()} else {unescape(&text.to_string())});
             },
-            ClassSelector => {
-                res_val_mut!().add_attrib("class", unescape(&node_tree.get_text(child.id())[1..]));
+            SELECTOR_CLASS => {
+                res_val_mut!().add_attrib("class", unescape(&child.text().to_string()[1..]));
             },
-            IdentifierSelector => {
-                res_val_mut!().add_attrib("id", unescape(&node_tree.get_text(child.id())[1..]));
+            SELECTOR_IDENTIFIER => {
+                res_val_mut!().add_attrib("id", unescape(&child.text().to_string()[1..]));
             },
-            _BodyDeclaration(BodyDeclaration {
-                declarations: _,
-                body_decl_type: BodyDeclarationType::MixinDeclaration(_)
-            }) => {
-                let name = node_tree.get_text(child.value().node_type.unchecked_mixin_declaration_ref().identifier);
-                res_val_mut!().add_attrib("class", name.to_owned());
+            XCSS_MIXIN_DECLARATION => {
+                todo!(r#"let typed = nodes_gen::XcssMixinDeclaration::cast(XCSS_MIXIN_DECLARATION);
+                let identifier = typed.get_identifier();
+                let name = identifier.text();
+                res_val_mut!().add_attrib("class", name.to_owned());"#)
             },
-            PseudoSelector => {
-                res_val_mut!().add_attrib(&unescape(node_tree.get_text(child.id())), "".to_owned())
+            SELECTOR_PSEUDO => {
+                res_val_mut!().add_attrib(&unescape(&child.text().to_string()), "".to_owned())
             }
-            AttributeSelector(selector) => {
-                let identifier = node_tree.get_text(selector.identifier);
+            SELECTOR_ATTRIBUTE => {
+                let typed = nodes_gen::SelectorAttribute::cast(child).unwrap();
 
-                let value = if let Some(expression_id) = selector.value {
-                    let expression = node_tree.get_text(expression_id);
-                    let operator = node_tree.get_text(selector.operator);
-                    match unescape(operator).as_str() {
-                        "|=" => format!("{}-\u{2026}", Quotes::remove(&unescape(expression))), // exactly or followed by -words
-                        "^=" => format!("{}\u{2026}", Quotes::remove(&unescape(expression))), // prefix
-                        "$=" => format!("\u{2026}{}", Quotes::remove(&unescape(expression))), // suffix
-                        "~=" => format!(" \u{2026} {} \u{2026} ", Quotes::remove(&unescape(expression))), // one of a list of words
-                        "*=" => format!("\u{2026}{}\u{2026}", Quotes::remove(&unescape(expression))), // substring
-                        _ => Quotes::remove(&unescape(expression)).to_owned()
+                let identifier = typed.identifier_token().unwrap().text().to_string();
+                let value = if let Some(expression) = typed.binary_expression() {
+                    let expr_unesc_text = unescape(&expression.syntax.text().to_string());
+                    let expression_text = Quotes::remove(&expr_unesc_text);
+                    if let Some(operator) = typed.operator() {
+                        match operator.syntax.text().to_string().as_str() {
+                            "|=" => format!("{}-\u{2026}", expression_text), // exactly or followed by -words
+                            "~=" => format!(" \u{2026} {} \u{2026} ", expression_text), // one of a list of words
+                            "^=" => format!("{}\u{2026}", expression_text), // prefix
+                            "$=" => format!("\u{2026}{}", expression_text), // suffix
+                            "*=" => format!("\u{2026}{}\u{2026}", expression_text), // substring
+                            "=" => expression_text.to_owned(),
+                            _ => "<unknown attribute operator>".to_owned(),
+                        }
+                    } else {
+                        String::new()
                     }
                 } else {
                     "undefined".to_owned()
                 };
                 
-                res_val_mut!().add_attrib(&unescape(identifier), value);
+                res_val_mut!().add_attrib(&unescape(&identifier), value);
             },
             _ => {}
         }
@@ -363,39 +379,28 @@ fn to_element(node_tree: &CssNodeTree, node_id: NodeId, ele_tree: Option<&Tree<E
     return res_tree
 }
 
-fn unescape(content: &str) -> String {
-    let mut scanner = Scanner::default();
-    scanner.set_source(content.to_owned());
-    match scanner.scan_unquoted_string() {
-        Some(token) => return token.text,
-        None => content.to_owned()
-    }
-}
 
 pub type SelectorPrinting = CssDataManager;
 
 impl SelectorPrinting {
-    pub fn selector_to_marked_string(&self, node_tree: &CssNodeTree, node_id: NodeId, flag_opts: Option<FlagOpts>) -> Vec<MarkedString> {
-        let node = node_tree.get(node_id).unwrap();
-        assert!(node.value().node_type.same_node_type(&CssNodeType::Selector));
-        let ele_tree = selector_to_element(node_tree, node_id);
+    pub fn selector_to_marked_string(&self, selector: &nodes_gen::Selector, flag_opts: Option<FlagOpts>) -> Vec<MarkedString> {
+        let ele_tree = selector_to_element(selector);
         let Some(ele_tree) = ele_tree else {
             return Vec::new();
         };
         let root = ele_tree.root().id();
         //let root = ele_tree.root().first_child().unwrap().id(); TODO
         let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, root, flag_opts);
-        marked_strings.push(self.selector_to_specificity_marked_string(node_tree, node_id));
-        return marked_strings;
+        marked_strings.push(self.selector_to_specificity_marked_string(&selector.syntax));
+        marked_strings
     }
 
-    pub fn simple_selector_to_marked_string(&self, node_tree: &CssNodeTree, node_id: NodeId, flag_opts: Option<FlagOpts>) -> Vec<MarkedString> {
-        assert!(node_tree.get(node_id).unwrap().value().node_type.same_node_type(&CssNodeType::SimpleSelector));
-        let ele_tree = to_element(node_tree, node_id, None, None);
+    pub fn simple_selector_to_marked_string(&self, simple_selector: &nodes_gen::SimpleSelector, flag_opts: Option<FlagOpts>) -> Vec<MarkedString> {
+        let ele_tree = to_element(simple_selector, None, None);
         let root = ele_tree.root().id();
         let mut marked_strings = MarkedStringPrinter::new("\"".to_owned()).print(ele_tree, root, flag_opts);
-        marked_strings.push(self.selector_to_specificity_marked_string(node_tree, node_id));
-        return marked_strings;
+        marked_strings.push(self.selector_to_specificity_marked_string(&simple_selector.syntax));
+        marked_strings
     }
 
     pub fn is_pseudo_element_identifier(&self, text: &str) -> bool {
@@ -408,17 +413,19 @@ impl SelectorPrinting {
         }
     }
 
-    fn selector_to_specificity_marked_string(&self, node_tree: &CssNodeTree, node_id: NodeId) -> MarkedString {
-        let specificity = self.calculate_score(node_tree, node_tree.get(node_id).unwrap());
-        return MarkedString::String(format!("[Selector Specificity](https://developer.mozilla.org/docs/Web/CSS/Specificity): ({}, {}, {})", specificity.id, specificity.attr, specificity.tag)); // TODO: i10n
+    fn selector_to_specificity_marked_string(&self, selector: &SyntaxNode<CssLanguage>) -> MarkedString {
+        assert!(matches!(selector.kind(), SyntaxKind::SELECTOR | SyntaxKind::SIMPLE_SELECTOR));
+        let specificity = self.calculate_score(selector);
+        MarkedString::String(format!("[Selector Specificity](https://developer.mozilla.org/docs/Web/CSS/Specificity): ({}, {}, {})", specificity.id, specificity.attr, specificity.tag)) // TODO: i10n
     }
 
-    fn calculate_most_specific_list_item (&self, node_tree: &CssNodeTree, child_nodes: Vec<NodeRef<CssNode>>) -> Specificity {
+    fn calculate_most_specific_list_item (&self, child_nodes: impl IntoIterator<Item = SyntaxNode<CssLanguage>>) -> Specificity {
         // TODO: check why vscode has specificity variable here
         let mut most_specific_list_item = Specificity::default();
         for container_node in child_nodes {
+            // simple selector
             for child_node in container_node.children() {
-                let item_specificity = self.calculate_score(node_tree, child_node);
+                let item_specificity = self.calculate_score(&child_node);
 
                 if item_specificity.id > most_specific_list_item.id {
                     most_specific_list_item = item_specificity;
@@ -445,21 +452,22 @@ impl SelectorPrinting {
 
 
     //https://www.w3.org/TR/selectors-3/#specificity
-    fn calculate_score(&self, node_tree: &CssNodeTree, node: NodeRef<CssNode>) -> Specificity {
+    fn calculate_score(&self, selector: &SyntaxNode<CssLanguage>) -> Specificity {
+        //assert!(matches!(selector.kind(), SyntaxKind::SELECTOR | SyntaxKind::SIMPLE_SELECTOR | SyntaxKind::SELECTOR_ATTRIBUTE), "was {:?}", selector.kind());
         let mut specificity = Specificity::default();
-        for child in node.children() {
-            use CssNodeType::*;
-            match child.value().node_type {
-                IdentifierSelector => specificity.id += 1,
-                ClassSelector | AttributeSelector(..) => specificity.attr += 1,
-                ElementNameSelector => {
-                    if node_tree.get_text(child.id()) != "*" {
+        for child in selector.children() {
+            use SyntaxKind::*;
+            match child.kind() {
+                SELECTOR_IDENTIFIER => specificity.id += 1,
+                SELECTOR_CLASS | SELECTOR_ATTRIBUTE => specificity.attr += 1,
+                SELECTOR_ELEMENT_NAME => {
+                    if child.text() != "*" {
                         specificity.tag += 1;
                     }
                 },
-                PseudoSelector => {
-                    let text = node_tree.get_text(child.id());
-                    let grand_childs: Vec<NodeRef<CssNode>> = child.children().collect();
+                SELECTOR_PSEUDO => {
+                    let text = &child.text().to_string();
+                    let grand_childs: Vec<SyntaxNode<CssLanguage>> = child.children().collect();
 
                     if self.is_pseudo_element_identifier(text) {
                         if text.to_lowercase().starts_with("::slotted") && grand_childs.len() > 0 {
@@ -467,7 +475,7 @@ impl SelectorPrinting {
                             // ::slotted() does not allow a selector list as its argument, but this isn't the right place to give feedback on validity.
                             // Reporting the most specific child will be correct for correct CSS and will be forgiving in case of mistakes.
                             specificity.tag += 1;
-                            specificity += self.calculate_most_specific_list_item(node_tree, grand_childs);
+                            specificity += self.calculate_most_specific_list_item(grand_childs);
                             continue
                         }
                         specificity.tag += 1; // pseudo element
@@ -481,7 +489,7 @@ impl SelectorPrinting {
                     
                     // the most specific child selector
                     if RegexBuilder::new("^:(?:not|has|is)").case_insensitive(true).build().unwrap().is_match(text) && grand_childs.len() > 0 {
-                        specificity += self.calculate_most_specific_list_item(node_tree, grand_childs);
+                        specificity += self.calculate_most_specific_list_item(grand_childs);
                         continue
                     }
 
@@ -489,7 +497,7 @@ impl SelectorPrinting {
                         // The specificity of :host() is that of a pseudo-class, plus the specificity of its argument.
                         // The specificity of :host-context() is that of a pseudo-class, plus the specificity of its argument.
                         specificity.attr += 1;
-                        specificity += self.calculate_most_specific_list_item(node_tree, grand_childs);
+                        specificity += self.calculate_most_specific_list_item(grand_childs);
                         continue
                     }
 
@@ -503,41 +511,66 @@ impl SelectorPrinting {
                         
                         if 
                             grand_childs.len() == 3 && 
-                            grand_childs[1].value().node_type
-                                .same_node_type(&BinaryExpression(crate::parser::css_node_types::BinaryExpression {
-                                    left: node.id(),
-                                    right: node.id(),
-                                    operator: node.id(),
-                                })
-                        ) {
-                            specificity += self.calculate_most_specific_list_item(node_tree, grand_childs[2].children().collect());
+                            grand_childs[1].kind() == SyntaxKind::BINARY_EXPRESSION {
+                            specificity += self.calculate_most_specific_list_item(grand_childs[2].children());
                             continue
+                        }
+                        println!("grand childs {}", grand_childs.iter().fold(String::new(), |acc, nex| acc + ", " + &nex.to_string()));
+
+                        // let first_token = child.first_token().and_then(|t| t.next_token()).and_then(|t| t.next_token());
+                        // let second_token = first_token.as_ref().and_then(|f| f.next_token());
+                        // let third_token = second_token.as_ref().and_then(|t| t.next_token());
+                        // let first_token_text = first_token.map(|f| f.text().to_string()).unwrap_or(String::new());
+                        // let second_token_text = second_token.map(|s| s.text().to_string()).unwrap_or(String::new());
+                        // let third_token_text = third_token.map(|t| t.text().to_string()).unwrap_or(String::new());
+
+                        fn is_an(sn: &SyntaxToken) -> bool {
+                            let k = sn.kind();
+                            k == SyntaxKind::CXDIM_AN_PLUS_B || k == SyntaxKind::CXID_AN_PLUS_B_SYNTAX_AN
                         }
 
-                        // Edge case: 'n' without integer prefix A, with B integer non-existent, is not regarded as a binary expression token.
-                        let pseudo_selector_text = node_tree.get_text(grand_childs[1].id());
-                        let mut parser = crate::parser::css_parser::Parser::new_with_text(pseudo_selector_text.to_owned());
-                        let first_token = parser.token.clone();
-                        let second_token = parser.scanner.scan();
-                        if first_token.text == "n" || (first_token.text == "-n" && second_token.text == "of") {
-                            parser.prev_token = Some(second_token.clone());
-                            parser.token = parser.scanner.scan(); 
-                            for _ in pseudo_selector_text[second_token.offset + 2..].split(",") {
-                                if let Some(n) = parser.parse_node_by_fn(|p: &mut crate::parser::css_parser::Parser| p.parse_selector(false)) {
-                                    parser.tree.0.root_mut().append_id(n);
-                                }
-                                if parser.token.token_type == crate::parser::css_scanner::TokenType::Comma {
-                                    parser.consume_token();
-                                }
-                            }
-                            let css_node_tree: CssNodeTree = parser.into_css_node_tree();
-                            specificity += self.calculate_most_specific_list_item(
-                                &css_node_tree,
-                                css_node_tree.0.0.root().children().into_iter().collect(), 
-                            );
-                            continue
+                        let mut is_an_plus_b = false;
+                        child.first_token()
+                            .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); t.next_token()})
+                            .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); t.next_token()})
+                            .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); Some(t)});
+
+                        println!("is_an_plus_b: {is_an_plus_b}");
+                        if is_an_plus_b {
+                            let selector_list = grand_childs.iter().find(|g| g.kind() == SyntaxKind::UNDEFINED);
+                            println!("before {:?}", specificity);
+                            specificity += selector_list
+                                .map(|sl| 
+                                    self.calculate_most_specific_list_item(sl.children().filter(|s| s.kind() == SyntaxKind::SELECTOR))
+                                ).unwrap_or(Specificity::default());
+                            println!("after  {:?}", specificity);
                         }
                         continue
+
+                        // Edge case: 'n' without integer prefix A, with B integer non-existent, is not regarded as a binary expression token.
+                        //let pseudo_selector_text = grand_childs[1].text().to_string();
+                        //let mut parser = crate::parser::css_parser::Parser::new_with_text(pseudo_selector_text.to_owned());
+                        // let first_token = parser.token.clone();
+                        // let second_token = parser.scanner.scan();
+                        // if first_token.text == "n" || (first_token.text == "-n" && second_token.text == "of") {
+                        //     parser.prev_token = Some(second_token.clone());
+                        //     parser.token = parser.scanner.scan(); 
+                        //     for _ in pseudo_selector_text[second_token.offset + 2..].split(",") {
+                        //         if let Some(n) = parser.parse_node_by_fn(|p: &mut crate::parser::css_parser::Parser| p.parse_selector(false)) {
+                        //             parser.tree.0.root_mut().append_id(n);
+                        //         }
+                        //         if parser.token.token_type == crate::parser::css_scanner::TokenType::Comma {
+                        //             parser.consume_token();
+                        //         }
+                        //     }
+                        //     let css_node_tree: CssNodeTree = parser.into_css_node_tree();
+                        //     specificity += self.calculate_most_specific_list_item(
+                        //         &css_node_tree,
+                        //         css_node_tree.0.0.root().children().into_iter().collect(), 
+                        //     );
+                        //     continue
+                        // }
+                        // continue
                     }
 
                     specificity.attr += 1; // pseudo class
@@ -547,7 +580,7 @@ impl SelectorPrinting {
             }
 
             if child.children().count() > 0 {
-                specificity += self.calculate_score(node_tree, child);
+                specificity += self.calculate_score(&child);
             }
         }
         return specificity;
@@ -557,14 +590,14 @@ impl SelectorPrinting {
 }
 
 struct SelectorElementBuilder<'a> {
-    node_tree: &'a CssNodeTree,
+    node_tree: &'a SyntaxNode<CssLanguage>,
     ele_tree: &'a mut Tree<Element>,
-    prev_node: Option<NodeId>,
+    prev_node: Option<SyntaxNode<CssLanguage>>,
     element: NodeId,
 }
 
 impl<'a> SelectorElementBuilder<'a> {
-    pub fn new(node_tree: &'a CssNodeTree, ele_tree: &'a mut Tree<Element>, element: NodeId) -> SelectorElementBuilder<'a> {
+    pub fn new(node_tree: &'a SyntaxNode<CssLanguage>, ele_tree: &'a mut Tree<Element>, element: NodeId) -> SelectorElementBuilder<'a> {
         return Self {
             node_tree,
             ele_tree,
@@ -574,12 +607,12 @@ impl<'a> SelectorElementBuilder<'a> {
     }
 
     // Processes node of type 'CssNodeType::Selector` `selector`
-    pub fn process_selector(&mut self, selector: NodeRef<CssNode>) {
-        assert!(selector.value().node_type.same_node_type(&CssNodeType::Selector));
+    pub fn process_selector(&mut self, selector: &nodes_gen::Selector) {
+        let selector = selector.syntax();
         let mut parent_element = None;
 
         if self.ele_tree.get(self.element).unwrap().parent().is_some() {
-            if selector.children().any(|ch| ch.has_children() && ch.first_child().unwrap().value().node_type.same_node_type(&CssNodeType::SelectorCombinator)) {
+            if selector.children().any(|ch| ch.first_child().is_some_and(|grand_ch| grand_ch.kind() == SyntaxKind::SELECTOR_COMBINATOR)) {
                 let curr = self.ele_tree.root();
                 if curr.parent().is_some_and(|p| p.id() == curr.tree().root().id()) {
                     parent_element = Some(self.element);
@@ -590,16 +623,15 @@ impl<'a> SelectorElementBuilder<'a> {
             }
         }
 
-        for selector_child in selector.children() {
-            if selector_child.value().node_type.same_node_type(&CssNodeType::SimpleSelector) {
-                
-                if let Some(prev) = self.prev_node {
+        for mut selector_child in selector.children() {
+            if selector_child.kind() == SyntaxKind::SIMPLE_SELECTOR {                
+                if let Some(prev) = &self.prev_node {
                     // we go deeper in the tree
-                    if self.node_tree.get(prev).unwrap().value().node_type.same_node_type(&CssNodeType::SimpleSelector) {
+                    if prev.kind() == SyntaxKind::SIMPLE_SELECTOR {
                         // descendant combinator ' ' (whitespace)
                         self.element = self.ele_tree.get_mut(self.element).unwrap().append(Element::new_label("\u{2026}")).id(); // horizontal elipses …
                     } else {
-                        let prev_text = self.node_tree.get_text(prev);
+                        let prev_text = prev.text();
                         if prev_text == "+" || prev_text == "~" {
                             // sibling combinator
                             if let Some(par) = self.ele_tree.get(self.element).unwrap().parent() {
@@ -608,23 +640,25 @@ impl<'a> SelectorElementBuilder<'a> {
                         }
                     }
     
-                    if self.node_tree.get_text(prev) == "~" {
+                    if prev.text().to_string() == "~" {
                         self.ele_tree.get_mut(self.element).unwrap().append(Element::new_label("\u{22EE}")).id(); // vertical elipses '⋮'
                     }
                 }
 
-                let mut self_element = to_element(self.node_tree, selector_child.id(), parent_element.map(|_| &*self.ele_tree), parent_element);
+                let typed = nodes_gen::SimpleSelector::cast(selector_child).unwrap();
+                let mut self_element = to_element(&typed, parent_element.map(|_| &*self.ele_tree), parent_element);
+                selector_child = typed.syntax;
                 let self_element_root = self_element.root().id();
 
                 self.element = self.ele_tree.attach_tree(&mut self_element, self.element, self_element_root);
             }
             
-            match selector_child.value().node_type {
-                CssNodeType::SimpleSelector | 
-                CssNodeType::SelectorCombinatorParent | 
-                CssNodeType::SelectorCombinatorShadowPiercingDescendant | 
-                CssNodeType::SelectorCombinatorSibling | 
-                CssNodeType::SelectorCombinatorAllSiblings => self.prev_node = Some(selector_child.id()),
+            match selector_child.kind() {
+                SyntaxKind::SIMPLE_SELECTOR | 
+                SyntaxKind::SELECTOR_COMBINATOR_PARENT | 
+                SyntaxKind::SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT | 
+                SyntaxKind::SELECTOR_COMBINATOR_SIBLING | 
+                SyntaxKind::SELECTOR_COMBINATOR_ALL_SIBLINGS => self.prev_node = Some(selector_child),
                 _ => {}
             }
         }
@@ -632,66 +666,51 @@ impl<'a> SelectorElementBuilder<'a> {
 
 }
 
-fn is_new_selector_context(node: &CssNode) -> bool {
-    return match &node.node_type {
-        CssNodeType::_BodyDeclaration(b) => {
-            match b.body_decl_type {
-                BodyDeclarationType::MixinDeclaration(..) => true,
-                _ => false
-            }
-        },
-        CssNodeType::Stylesheet => true,
-        _ => false
-    }
+fn is_new_selector_context(node: &SyntaxNode<CssLanguage>) -> bool {
+    return node.kind() == SyntaxKind::XCSS_MIXIN_DECLARATION ||
+        node.kind() == SyntaxKind::SOURCE_FILE
 }
 
 /// Creates `Tree<Element>` for CssNodeType::Selector at `node_id` in `node_tree`, searching upwards of `node_id` for parent rulesets
-fn selector_to_element(node_tree: &CssNodeTree, node_id: NodeId) -> Option<Tree<Element>> {
-    assert!(node_tree.get(node_id).unwrap().value().node_type.same_node_type(&CssNodeType::Selector));
-
-    if node_tree.get_text(node_id) == "@at-root" {
+fn selector_to_element(typed_node: &nodes_gen::Selector) -> Option<Tree<Element>> {
+    let syntax_node = typed_node.syntax();
+    
+    if syntax_node.text() == "@at-root" {
         return None
     }
 
-    let mut parent_rule_sets = Vec::new();
-    let maybe_rule_set = node_tree.get(node_id).unwrap().parent().unwrap().id();
+    let mut parent_rule_sets: Vec<nodes_gen::RuleSet> = Vec::new();
+    let maybe_rule_set = syntax_node.parent();
 
-    let rule_set_dummy = CssNodeType::_BodyDeclaration(
-        BodyDeclaration {
-            declarations: None,
-            body_decl_type: BodyDeclarationType::RuleSet(crate::parser::css_node_types::RuleSet {
-                selectors: node_id,
-            })
-        }
-    );
-
-    if node_tree.get(maybe_rule_set).unwrap().value().node_type.same_node_type(&rule_set_dummy) {
-        let mut parent = node_tree.get(maybe_rule_set).unwrap().parent(); // parent of the selector's ruleset
-        while let Some(par) = parent {
-            if is_new_selector_context(par.value()) {break}
-            if par.value().node_type.same_node_type(&rule_set_dummy) {
-                if node_tree.get_text(par.value().node_type.unchecked_rule_set_ref().selectors) == "@at-root" {
-                    break;
+    if let Some(maybe_rule_set) = maybe_rule_set {
+        if maybe_rule_set.kind() == SyntaxKind::RULE_SET {
+            let mut parent = maybe_rule_set.parent(); // parent of the selector's ruleset
+            while let Some(par) = parent {
+                if is_new_selector_context(&par) {break}
+                if let Some(typed) = nodes_gen::RuleSet::cast(par.clone()) {
+                    let selectors = typed.selectors();
+                    if selectors.into_iter().fold(String::new(), |acc, nex| acc + &nex.syntax.text().to_string()) == "@at-root" {{
+                        break;
+                    }}
+                    parent_rule_sets.push(typed);
                 }
-                parent_rule_sets.push(par.id());
+                parent = par.parent();
             }
-            parent = par.parent();
         }
     }
 
     let mut ele_tree = Tree::new(Element::default());
     let ele_tree_root = ele_tree.root().id();
-    let mut builder = SelectorElementBuilder::new(&node_tree, &mut ele_tree, ele_tree_root); 
-    for rule_set in parent_rule_sets.into_iter().rev() {
-        let selector = node_tree.get(
-            node_tree.get(rule_set).unwrap().value().node_type.unchecked_rule_set_ref().selectors
-        ).unwrap().first_child();
-        if let Some(sel) = selector {
-            builder.process_selector(sel);
+    let mut builder = SelectorElementBuilder::new(&syntax_node, &mut ele_tree, ele_tree_root); 
+    for rule_set in parent_rule_sets.into_iter().rev() { 
+        let mut selectors = rule_set.selectors();
+        
+        if let Some(sel) = selectors.next() {
+            builder.process_selector(&sel);
         }
     }
 
-    builder.process_selector(node_tree.get(node_id).unwrap());
+    builder.process_selector(typed_node);
     return Some(ele_tree);
 
 }
@@ -708,11 +727,15 @@ mod selector_printing_test {
 
     use ego_tree::{NodeId, NodeRef};
     use lsp_types::{LanguageString, MarkedString, Url};
+    use rowan::{TextSize, TokenAtOffset};
 
-    use crate::parser::css_node_types::CssNodeType;
-    use crate::parser::css_nodes::NodeRefExt;
+    use crate::row_parser::{
+        ast::AstNode, nodes_gen, 
+        nodes_types::SyntaxNode, 
+        syntax_kind_gen::SyntaxKind,
+        parser::Parser,
+    };
     use crate::services::selector_printing::{self, Attribute};
-    use crate::parser::css_parser::Parser;
     use crate::workspace::source::Source;
 
     fn element_to_string(element: NodeRef<selector_printing::Element>) -> String {
@@ -747,16 +770,20 @@ mod selector_printing_test {
         return label;
     }
 
-    fn do_parse(input: String, selector_name: String) -> Option<(Source, NodeId)> {
-        let source = Source::new(Url::parse("test://test/test.css").unwrap(), input.clone(), 0);
+    fn do_parse(input: String, selector_name: String) -> Option<(Source, nodes_gen::Selector)> {
+        let source = Source::new(Url::parse("test://test/test.css").unwrap(), &input, 0);
 
-        let p = source.tree.fancy_string();
-        println!("{p}");
+        println!("{}", source.parse.fancy_string());
 
-        let node = source.tree.0.0.root()
-            .get_node_at_offset(input.find(&selector_name).unwrap())?
-            .find_ancestor(|n| n.value().node_type.same_node_type(&CssNodeType::Selector))?
-            .id();
+        let node = match source.parse.syntax_node().token_at_offset(TextSize::new(input.find(&selector_name).unwrap() as u32)) {
+            TokenAtOffset::Single(t) => t,
+            TokenAtOffset::Between(a, b) => if a.kind().is_trivia() && !b.kind().is_trivia() {b} else if !a.kind().is_trivia() && b.kind().is_trivia() {a} else {a},
+            TokenAtOffset::None => panic!("no bueno"),
+        }
+            .parent_ancestors()
+            .find(|a| a.kind() == SyntaxKind::SELECTOR)?;
+
+        let node = nodes_gen::Selector::cast(node).unwrap();
         
         return Some((source, node));
     }
@@ -765,10 +792,10 @@ mod selector_printing_test {
         let src_and_selector = do_parse(input.to_owned(), selector_name.to_owned());
         assert!(src_and_selector.is_some());
         let (source, selector) = src_and_selector.unwrap();
-        source.tree.0.assert_valid();
-        let s = source.tree.fancy_string();
-        println!("{s}");
-        let element: Option<ego_tree::Tree<selector_printing::Element>> = selector_printing::selector_to_element(&source.tree, selector);
+        //source.tree.0.assert_valid();
+        //let s = source.tree.fancy_string();
+        //println!("{s}");
+        let element: Option<ego_tree::Tree<selector_printing::Element>> = selector_printing::selector_to_element(&selector);
         assert!(element.is_some());
         let element = element.unwrap();
 
@@ -781,27 +808,33 @@ mod selector_printing_test {
     }
 
     fn assert_element(input: &str, expected: &[ExpectedElement]) {
+        println!("{input}");
         let expected = expected.into_iter().map(|e| Attribute {name: e.name.to_owned(), value: e.value.to_owned()}).collect::<Vec<Attribute>>();
-        let p: Parser = Parser::new_with_text(input.to_owned());
-        let node = p.into_parsed_by_fn(Parser::parse_simple_selector);
-        assert!(node.is_some());
-        let node = node.unwrap();
-        node.0.assert_valid();
-        let actual = selector_printing::to_element(&node, node.0.0.root().children().next().unwrap().id(), None, None);
+        // let p: Parser = Parser::new_with_text(input.to_owned());
+        // let node = p.into_parsed_by_fn(Parser::parse_simple_selector);
+
+        let (success, (green, errors)) = crate::row_parser::must_parse_text_as_fn(
+            input, 
+            |p: &mut Parser| p.parse_simple_selector().map(|o| Ok(())));
+        let root = SyntaxNode::new_root(green.clone());
+
+        assert!(success);
+
+        let root = nodes_gen::SimpleSelector::cast(root).unwrap();
+
+        let actual = selector_printing::to_element(&root, None, None);
         let actual = &actual.root().value().attributes;
 
         assert_eq!(actual, &expected);
     }
 
     fn assert_selector_markdown(input: &str, selector_name: &str, expected: &[MarkedString]) {
+        println!("input: {input}, selector_name: {selector_name}, expected: {expected:?}");
         let tree_and_selector = do_parse(input.to_owned(), selector_name.to_owned());
         assert!(tree_and_selector.is_some());
         let (source, selector) = tree_and_selector.unwrap();
-        source.tree.0.assert_valid();
-        let s = source.tree.fancy_string();
-        println!("{s}");
         let selector_printer = selector_printing::SelectorPrinting::new(true, None);
-        let printed_element = selector_printer.selector_to_marked_string(&source.tree, selector, None);
+        let printed_element = selector_printer.selector_to_marked_string(&selector, None);
 
         assert_eq!(printed_element, expected);
     }
@@ -817,6 +850,7 @@ mod selector_printing_test {
     }
 
     fn assert_selector_markdown_standard(input: &str, selector_name: &str, expected: (BorrowLangString, &str)) {
+        println!("assert_selector_markdown_standard()");
         let expected = &[
             MarkedString::LanguageString(
                 LanguageString {

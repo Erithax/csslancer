@@ -27,14 +27,6 @@ impl Container {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CustomPropertyDeclaration {
-    pub(crate) syntax: SyntaxNode,
-}
-impl CustomPropertyDeclaration {
-    pub fn custom_property_set(&self) -> Option<CustomPropertySet> { support::child(&self.syntax) }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CustomPropertySet {
     pub(crate) syntax: SyntaxNode,
 }
@@ -47,20 +39,39 @@ pub struct Declaration {
     pub(crate) syntax: SyntaxNode,
 }
 impl Declaration {
+    pub fn declaration_basic(&self) -> Option<DeclarationBasic> { support::child(&self.syntax) }
+    pub fn declaration_custom_property(&self) -> Option<DeclarationCustomProperty> {
+        support::child(&self.syntax)
+    }
     pub fn todo(&self) -> Option<Todo> { support::child(&self.syntax) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DeclarationCommon {
+pub struct DeclarationBasic {
     pub(crate) syntax: SyntaxNode,
 }
-impl DeclarationCommon {
-    pub fn custom_property_declaration(&self) -> Option<CustomPropertyDeclaration> {
-        support::child(&self.syntax)
-    }
-    pub fn declaration(&self) -> Option<Declaration> { support::child(&self.syntax) }
+impl DeclarationBasic {
     pub fn expression(&self) -> Option<Expression> { support::child(&self.syntax) }
     pub fn property(&self) -> Option<Property> { support::child(&self.syntax) }
+    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeclarationCustomProperty {
+    pub(crate) syntax: SyntaxNode,
+}
+impl DeclarationCustomProperty {
+    pub fn custom_property_set(&self) -> Option<CustomPropertySet> { support::child(&self.syntax) }
+    pub fn property(&self) -> Option<Property> { support::child(&self.syntax) }
+    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeclarationXcssVariable {
+    pub(crate) syntax: SyntaxNode,
+}
+impl DeclarationXcssVariable {
+    pub fn todo(&self) -> Option<Todo> { support::child(&self.syntax) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -311,8 +322,11 @@ pub struct SelectorAttribute {
     pub(crate) syntax: SyntaxNode,
 }
 impl SelectorAttribute {
+    pub fn binary_expression(&self) -> Option<BinaryExpression> { support::child(&self.syntax) }
     pub fn namespace_prefix(&self) -> Option<NamespacePrefix> { support::child(&self.syntax) }
     pub fn operator(&self) -> Option<Operator> { support::child(&self.syntax) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
     pub fn identifier_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![identifier])
     }
@@ -492,17 +506,9 @@ impl ViewPort {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct XcssVariableDeclaration {
-    pub(crate) syntax: SyntaxNode,
-}
-impl XcssVariableDeclaration {
-    pub fn todo(&self) -> Option<Todo> { support::child(&self.syntax) }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AbstractDeclaration {
     Declaration(Declaration),
-    XcssVariableDeclaration(XcssVariableDeclaration),
+    DeclarationXcssVariable(DeclarationXcssVariable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -545,17 +551,6 @@ impl AstNode for Container {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
-impl AstNode for CustomPropertyDeclaration {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == CUSTOM_PROPERTY_DECLARATION }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode { &self.syntax }
-}
 impl AstNode for CustomPropertySet {
     fn can_cast(kind: SyntaxKind) -> bool { kind == CUSTOM_PROPERTY_SET }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -578,8 +573,30 @@ impl AstNode for Declaration {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
-impl AstNode for DeclarationCommon {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == DECLARATION_COMMON }
+impl AstNode for DeclarationBasic {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == DECLARATION_BASIC }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for DeclarationCustomProperty {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == DECLARATION_CUSTOM_PROPERTY }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for DeclarationXcssVariable {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == DECLARATION_XCSS_VARIABLE }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -1150,34 +1167,23 @@ impl AstNode for ViewPort {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
-impl AstNode for XcssVariableDeclaration {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == XCSS_VARIABLE_DECLARATION }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode { &self.syntax }
-}
 impl From<Declaration> for AbstractDeclaration {
     fn from(node: Declaration) -> AbstractDeclaration { AbstractDeclaration::Declaration(node) }
 }
-impl From<XcssVariableDeclaration> for AbstractDeclaration {
-    fn from(node: XcssVariableDeclaration) -> AbstractDeclaration {
-        AbstractDeclaration::XcssVariableDeclaration(node)
+impl From<DeclarationXcssVariable> for AbstractDeclaration {
+    fn from(node: DeclarationXcssVariable) -> AbstractDeclaration {
+        AbstractDeclaration::DeclarationXcssVariable(node)
     }
 }
 impl AstNode for AbstractDeclaration {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(kind, DECLARATION | XCSS_VARIABLE_DECLARATION)
+        matches!(kind, DECLARATION | DECLARATION_XCSS_VARIABLE)
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {
             DECLARATION => AbstractDeclaration::Declaration(Declaration { syntax }),
-            XCSS_VARIABLE_DECLARATION => {
-                AbstractDeclaration::XcssVariableDeclaration(XcssVariableDeclaration { syntax })
+            DECLARATION_XCSS_VARIABLE => {
+                AbstractDeclaration::DeclarationXcssVariable(DeclarationXcssVariable { syntax })
             }
             _ => return None,
         };
@@ -1186,7 +1192,7 @@ impl AstNode for AbstractDeclaration {
     fn syntax(&self) -> &SyntaxNode {
         match self {
             AbstractDeclaration::Declaration(it) => &it.syntax,
-            AbstractDeclaration::XcssVariableDeclaration(it) => &it.syntax,
+            AbstractDeclaration::DeclarationXcssVariable(it) => &it.syntax,
         }
     }
 }
@@ -1317,11 +1323,6 @@ impl std::fmt::Display for Container {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for CustomPropertyDeclaration {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
 impl std::fmt::Display for CustomPropertySet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
@@ -1332,7 +1333,17 @@ impl std::fmt::Display for Declaration {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for DeclarationCommon {
+impl std::fmt::Display for DeclarationBasic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for DeclarationCustomProperty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for DeclarationXcssVariable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -1588,11 +1599,6 @@ impl std::fmt::Display for UriLiteral {
     }
 }
 impl std::fmt::Display for ViewPort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
-impl std::fmt::Display for XcssVariableDeclaration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

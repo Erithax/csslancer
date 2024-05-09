@@ -18,7 +18,7 @@ use std::{
 
 pub fn generate(check: bool) {
     let syntax_kinds = generate_syntax_kinds(SYNTAX_KINDS_SRC);
-    let syntax_kinds_file = project_root().join("csslancer/src/row_parser/syntax_kind_gen.rs");
+    let syntax_kinds_file: std::path::PathBuf = project_root().join("csslancer/src/row_parser/syntax_kind_gen.rs");
     ensure_file_contents(syntax_kinds_file.as_path(), &syntax_kinds, check);
 
     let grammar = normalize_newlines(
@@ -632,7 +632,8 @@ impl Field {
     fn token_kind(&self) -> Option<proc_macro2::TokenStream> {
         match self {
             Field::Token(token) => {
-                let token: proc_macro2::TokenStream = token.parse().unwrap();
+                let t = token.replace("$", "DOLLAR");
+                let token: proc_macro2::TokenStream = t.parse().unwrap();
                 Some(quote! { T![#token] })
             }
             _ => None,
@@ -671,6 +672,12 @@ impl Field {
                     "," => "comma",
                     "|" => "pipe",
                     "~" => "tilde",
+
+                    "|=" => "op_dashmatch",
+                    "~=" => "op_includes",
+                    "^=" => "op_prefix",
+                    "$=" => "op_suffix",
+                    "*=" => "op_substring",
                     _ => name,
                 };
                 format_ident!("{}_token", name)
@@ -901,10 +908,11 @@ fn extract_enum_traits(ast: &mut AstSrc) {
             continue;
         }
         let nodes = &ast.nodes;
+        println!("{:?}", nodes);
         let mut variant_traits = enm
             .variants
             .iter()
-            .map(|var| nodes.iter().find(|it| &it.name == var).unwrap())
+            .map(|var| nodes.iter().find(|it| &it.name == var).expect(&format!("Huh: {:?}", var)))
             .map(|node| node.traits.iter().cloned().collect::<BTreeSet<_>>());
 
         let mut enum_traits = match variant_traits.next() {

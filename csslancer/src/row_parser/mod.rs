@@ -18,11 +18,13 @@ pub mod css_grammar_test;
 pub mod event;
 pub mod token_set;
 pub mod parse_error;
+pub mod reparsing;
 
 use std::marker::PhantomData;
 
+use itertools::Itertools;
 //use stdx::format_to;
-//use text_edit::Indel;
+use ra_ap_text_edit::Indel;
 use triomphe::Arc;
 
 use self::{
@@ -86,6 +88,42 @@ impl<T> Parse<T> {
         // TODO validation::validate(&self.syntax_node(), &mut errors);
         errors
     }
+
+    pub fn fancy_string(&self) -> String {
+        let mut res = String::new();
+        res += "Parse";
+        res += "\n    Errors: ";
+        res += &self.errors
+            .as_ref()
+            .map(|errs| 
+                "\n        ".to_string() + &(*errs).iter()
+                    .map(|e| format!("{} at {:?}", e.to_string(), e.range()))
+                    .join(";\n        ")
+            ).unwrap_or(String::new());
+        res += &Self::fancy_string_internal(&self.syntax_node(), 0);
+        res
+    }
+
+    fn fancy_string_internal(syntax_node: &SyntaxNode, ident: usize) -> String {
+        let ident_s = "    ".repeat(ident);
+        return "\n".to_owned()
+            + &ident_s
+            + &format!(
+                "{:?}[{:?}]({:?}+{:?}={:?}) {{",
+                syntax_node.kind(),
+                syntax_node.index(),
+                syntax_node.text_range().start(),
+                syntax_node.text_range().len(),
+                syntax_node.text_range().end(),
+            )
+            + &syntax_node
+                .children()
+                .map(|ch| Self::fancy_string_internal(&ch, ident + 1))
+                .fold(String::new(), |acc, nex| acc + &nex)
+            + "\n"
+            + &ident_s
+            + "}"; 
+    }
 }
 
 impl<T: AstNode> Parse<T> {
@@ -124,29 +162,29 @@ impl Parse<SourceFile> {
         buf
     }
 
-    // pub fn reparse(&self, indel: &Indel) -> Parse<SourceFile> {
-    //     self.incremental_reparse(indel).unwrap_or_else(|| self.full_reparse(indel))
-    // }
+    pub fn reparse(&self, indel: &Indel) -> Parse<SourceFile> {
+        self.incremental_reparse(indel).unwrap_or_else(|| self.full_reparse(indel))
+    }
 
-    // fn incremental_reparse(&self, indel: &Indel) -> Option<Parse<SourceFile>> {
-    //     // FIXME: validation errors are not handled here
-    //     parsing::incremental_reparse(
-    //         self.tree().syntax(),
-    //         indel,
-    //         self.errors.as_deref().unwrap_or_default().iter().cloned(),
-    //     )
-    //     .map(|(green_node, errors, _reparsed_range)| Parse {
-    //         green: green_node,
-    //         errors: if errors.is_empty() { None } else { Some(errors.into()) },
-    //         _ty: PhantomData,
-    //     })
-    // }
+    fn incremental_reparse(&self, indel: &Indel) -> Option<Parse<SourceFile>> {
+        // FIXME: validation errors are not handled here
+        reparsing::incremental_reparse(
+            self.tree().syntax(),
+            indel,
+            self.errors.as_deref().unwrap_or_default().iter().cloned(),
+        )
+        .map(|(green_node, errors, _reparsed_range)| Parse {
+            green: green_node,
+            errors: if errors.is_empty() { None } else { Some(errors.into()) },
+            _ty: PhantomData,
+        })
+    }
 
-    // fn full_reparse(&self, indel: &Indel) -> Parse<SourceFile> {
-    //     let mut text = self.tree().syntax().text().to_string();
-    //     indel.apply(&mut text);
-    //     SourceFile::parse(&text)
-    // }
+    fn full_reparse(&self, indel: &Indel) -> Parse<SourceFile> {
+        let mut text = self.tree().syntax().text().to_string();
+        indel.apply(&mut text);
+        SourceFile::parse(&text)
+    }
 }
 
 
@@ -160,13 +198,6 @@ impl Parse<SourceFile> {
 
 // pub(crate) use crate::parsing::reparsing::incremental_reparse;
 
-pub fn parse_source_file(input: &input::Input) -> output::Output {
-    parse_fn(input, |p: &mut parser::Parser| Some(Ok(p.parse_source_file())))
-}
-
-pub fn parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input: &input::Input, f: F) -> output::Output {
-    must_parse_fn(input, f).1
-}
 
 pub fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input: &input::Input, f: F) -> (bool, output::Output) {
     //let _p = tracing::span!(tracing::Level::INFO, "TopEntryPoint::parse", ?self).entered();
@@ -195,6 +226,10 @@ pub fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input
     }
 
     (success, res)
+}
+
+pub fn parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input: &input::Input, f: F) -> output::Output {
+    must_parse_fn(input, f).1
 }
 
 pub(crate) fn build_tree(
@@ -226,23 +261,23 @@ pub(crate) fn build_tree(
     (node, errors, is_eof)
 }
 
-
-
-pub(crate) fn parse_source_file_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
-    parse_text_as_fn(text, |p: &mut parser::Parser| Some(Ok(p.parse_source_file())))
-}
-
-pub(crate) fn parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> (GreenNode, Vec<SyntaxError>) {
-    must_parse_text_as_fn(text, f).1
-}
-
 pub(crate) fn must_parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> (bool, (GreenNode, Vec<SyntaxError>)) {
-    let _p = tracing::span!(tracing::Level::INFO, "parse_text").entered();
+    let _p = tracing::span!(tracing::Level::INFO, "must_parse_text_as_fn").entered();
     let lexed = lex_to_syn::LexedStr::new(text);
     let parser_input = lexed.to_input();
     let (success, parser_output) = must_parse_fn(&parser_input, f);
     let (node, errors, _eof) = build_tree(lexed, parser_output);
     (success, (node, errors))
+}
+
+#[inline]
+pub(crate) fn parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> (GreenNode, Vec<SyntaxError>) {
+    must_parse_text_as_fn(text, f).1
+}
+
+#[inline]
+pub(crate) fn parse_source_file_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
+    parse_text_as_fn(text, |p: &mut parser::Parser| Some(Ok(p.parse_source_file())))
 }
 
 impl SourceFile {

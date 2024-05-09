@@ -1,7 +1,8 @@
 use crate::interop::CssLancerRange;
-use crate::parser::css_nodes::CssNodeTree;
-use crate::parser::css_parser::Parser;
+use crate::row_parser::{nodes_gen::SourceFile, Parse, parser::Parser};
+use rowan::{GreenNode, SyntaxText, TextRange, TextSize};
 use lsp_types::Url;
+use smol_str::ToSmolStr;
 
 use std::ops::Range;
 
@@ -11,7 +12,7 @@ pub struct Source {
     //pub text: String,
     // text: Prehashed<String>,
     // root: Prehashed<SyntaxNode>,
-    pub tree: CssNodeTree,
+    pub parse:  Parse<SourceFile>,
     lines: Vec<Line>,
 }
 
@@ -33,48 +34,63 @@ impl std::fmt::Debug for Source {
 
 impl Source {
     // Create a new source file.
-    pub fn new(url: Url, text: String, version: i32) -> Self {
+    pub fn new(url: Url, text: &str, version: i32) -> Self {
         Self {
             url,
             version,
             lines: Line::lines(&text),
-            tree: Parser::new_with_text(text).into_stylesheet(),
-        }
+            parse: SourceFile::parse(text),
+        }   
     }
 
     /// Create a source file without a real id and path, usually for testing.
     pub fn detached(text: impl Into<String>) -> Self {
         return Self::new(
             Url::parse("https://localhost/detached").unwrap(),
-            text.into(),
+            &text.into(),
             0,
         );
     }
 
-    pub fn text(&self) -> &str {
-        return &self.tree.1;
+    pub fn text(&self) -> SyntaxText {
+        self.parse.tree().syntax.text()
     }
 
     /// Slice out the part of the source code enclosed by the range.
-    pub fn get(&self, range: Range<usize>) -> Option<&str> {
-        self.text().get(range)
+    // pub fn get(&self, range: Range<usize>) -> Option<&str> {
+    //     self.text().get(range)
+    // }
+
+    pub fn text_at(&self, csslancer_range: CssLancerRange) -> SyntaxText {
+        let r = std::ops::Range::<TextSize> {
+            start: TextSize::new(csslancer_range.start as u32),
+            end: TextSize::new(csslancer_range.end as u32),
+        };
+        self.text().slice(r)
     }
 
-    pub fn text_at(&self, csslancer_range: CssLancerRange) -> &str {
-        &self.text()[csslancer_range]
+    pub fn text_at_fall(&self, csslancer_range: CssLancerRange) -> Option<SyntaxText> {
+        let r = std::ops::Range::<TextSize> {
+            start: TextSize::new(csslancer_range.start as u32),
+            end: TextSize::new(csslancer_range.end as u32),
+        };
+        if !self.parse.tree().syntax.text_range().contains_range(TextRange::new(r.start, r.end)) {
+            return None
+        }
+        Some(self.text().slice(r))
     }
 
     /// Return the index of the UTF-16 code unit at the byte index.
     pub fn byte_to_utf16(&self, byte_idx: usize) -> Option<usize> {
         let line_idx = self.byte_to_line(byte_idx)?;
         let line = self.lines.get(line_idx)?;
-        let head = self.text().get(line.utf8_offset..byte_idx)?;
-        Some(line.utf16_offset + len_utf16(head))
+        let head = self.text_at_fall(line.utf8_offset..byte_idx)?;
+        Some(line.utf16_offset + len_utf16(head.to_string().as_str()))
     }
 
     /// Return the index of the line that contains the given byte index.
     pub fn byte_to_line(&self, byte_idx: usize) -> Option<usize> {
-        (byte_idx <= self.text().len()).then(|| {
+        (TextSize::new(byte_idx as u32) <= self.text().len()).then(|| {
             match self
                 .lines
                 .binary_search_by_key(&byte_idx, |line| line.utf8_offset)
@@ -92,8 +108,8 @@ impl Source {
     pub fn byte_to_column(&self, byte_idx: usize) -> Option<usize> {
         let line = self.byte_to_line(byte_idx)?;
         let start = self.line_to_byte(line)?;
-        let head = self.get(start..byte_idx)?;
-        Some(head.chars().count())
+        let head = self.text_at_fall(start..byte_idx)?;
+        Some(head.to_smolstr().chars().count())
     }
 
     /// Return the byte index at the UTF-16 code unit.
@@ -109,14 +125,14 @@ impl Source {
         )?;
 
         let mut k = line.utf16_offset;
-        for (i, c) in self.text()[line.utf8_offset..].char_indices() {
+        for (i, c) in self.text_at(line.utf8_offset..self.text().len().into()).to_smolstr().char_indices() {
             if k >= utf16_idx {
                 return Some(line.utf8_offset + i);
             }
             k += c.len_utf16();
         }
 
-        (k == utf16_idx).then_some(self.text().len())
+        (k == utf16_idx).then_some(self.text().len().into())
     }
 
     /// Return the byte position at which the given line starts.
@@ -127,7 +143,7 @@ impl Source {
     /// Return the range which encloses the given line.
     pub fn line_to_range(&self, line_idx: usize) -> Option<Range<usize>> {
         let start = self.line_to_byte(line_idx)?;
-        let end = self.line_to_byte(line_idx + 1).unwrap_or(self.text().len());
+        let end = self.line_to_byte(line_idx + 1).unwrap_or(self.text().len().into());
         Some(start..end)
     }
 
@@ -137,12 +153,13 @@ impl Source {
     /// the line.
     pub fn line_column_to_byte(&self, line_idx: usize, column_idx: usize) -> Option<usize> {
         let range = self.line_to_range(line_idx)?;
-        let line = self.get(range.clone())?;
-        let mut chars = line.chars();
-        for _ in 0..column_idx {
-            chars.next();
+        let line = self.text_at_fall(range.clone())?;
+        let sm = line.to_smolstr();
+        let mut chars = sm.chars();
+        if column_idx > 0 {
+            chars.nth(column_idx-1);
         }
-        Some(range.start + (line.len() - chars.as_str().len()))
+        Some(range.start + (Into::<usize>::into(line.len()) - chars.as_str().len()))
     }
 
     /// Fully replace the source text.
@@ -152,70 +169,87 @@ impl Source {
     /// then calls [`edit`](Self::edit) with it.
     ///
     /// Returns the range in the new source that was ultimately reparsed.
-    pub fn replace(&mut self, new: &str) -> Range<usize> {
-        let old = self.text();
+    pub fn replace(&mut self, new: String) {
+        self.parse = self.parse.reparse(
+            &ra_ap_text_edit::Indel {
+                delete: self.parse.syntax_node().text_range(),
+                insert: new,
+            }
+        );
+        // let old = self.text();
 
-        let mut prefix = old
-            .as_bytes()
-            .iter()
-            .zip(new.as_bytes())
-            .take_while(|(x, y)| x == y)
-            .count();
+        // let mut prefix = old
+        //     .as_bytes()
+        //     .iter()
+        //     .zip(new.as_bytes())
+        //     .take_while(|(x, y)| x == y)
+        //     .count();
 
-        if prefix == old.len() && prefix == new.len() {
-            return 0..0;
-        }
+        // if prefix == old.len() && prefix == new.len() {
+        //     return 0..0;
+        // }
 
-        while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
-            prefix -= 1;
-        }
+        // while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
+        //     prefix -= 1;
+        // }
 
-        let mut suffix = old[prefix..]
-            .as_bytes()
-            .iter()
-            .zip(new[prefix..].as_bytes())
-            .rev()
-            .take_while(|(x, y)| x == y)
-            .count();
+        // let mut suffix = old[prefix..]
+        //     .as_bytes()
+        //     .iter()
+        //     .zip(new[prefix..].as_bytes())
+        //     .rev()
+        //     .take_while(|(x, y)| x == y)
+        //     .count();
 
-        while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix)
-        {
-            suffix += 1;
-        }
+        // while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix)
+        // {
+        //     suffix += 1;
+        // }
 
-        let replace = prefix..old.len() - suffix;
-        let with = &new[prefix..new.len() - suffix];
-        self.edit(replace, with)
+        // let replace = prefix..old.len() - suffix;
+        // let with = &new[prefix..new.len() - suffix];
+        // self.edit(replace, with)
     }
 
-    pub fn edit(&mut self, replace: Range<usize>, with: &str) -> Range<usize> {
-        let start_byte = replace.start;
-        let start_utf16 = self.byte_to_utf16(start_byte).unwrap();
-        let line = self.byte_to_line(start_byte).unwrap();
+    pub fn edit(&mut self, replace: Range<usize>, with: String) {
+        // let start_byte = replace.start;
+        // let start_utf16 = self.byte_to_utf16(start_byte).unwrap();
+        // let line = self.byte_to_line(start_byte).unwrap();
 
         //let inner = std::sync::Arc::make_mut(&mut self.0);
 
+        let indel = ra_ap_text_edit::Indel {
+            delete: TextRange::new(
+                TextSize::new(replace.start as u32),
+                TextSize::new(replace.end as u32),
+            ),
+            insert: with,
+        };
+
+        self.parse = self.parse.reparse(&indel);
+        //return replace // FIXME
+
         // Update the text itself.
-        self.tree.1.replace_range(replace.clone(), with);
+        // self.tree.1.replace_range(replace.clone(), with);
 
-        // Remove invalidated line starts.
-        self.lines.truncate(line + 1);
+        // // Remove invalidated line starts.
+        // self.lines.truncate(line + 1);
 
-        // Handle adjoining of \r and \n.
-        if self.tree.1[..start_byte].ends_with('\r') && with.starts_with('\n') {
-            self.lines.pop();
-        }
+        // // Handle adjoining of \r and \n.
+        // if self.tree.1[..start_byte].ends_with('\r') && with.starts_with('\n') {
+        //     self.lines.pop();
+        // }
 
-        // Recalculate the line starts after the edit.
-        self.lines.extend(Line::lines_from(
-            start_byte,
-            start_utf16,
-            &self.tree.1[start_byte..],
-        ));
+        // // Recalculate the line starts after the edit.
+        // self.lines.extend(Line::lines_from(
+        //     start_byte,
+        //     start_utf16,
+        //     &self.tree.1[start_byte..],
+        // ));
 
-        // Incrementally reparse the replaced range.
-        self.tree.reparse(replace.clone(), with.len());
-        return replace; // TODO
+        // // Incrementally reparse the replaced range.
+        // self.tree.reparse(replace.clone(), with.len());
+        // return replace; // TODO
     }
 }
 

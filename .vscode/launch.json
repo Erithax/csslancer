@@ -39,7 +39,7 @@
         "name": "(Windows) Launch Cargo Test",
         "type": "cppvsdbg",
         "request": "launch",
-        "program": "${workspaceRoot}/target/debug/deps/csslancer-32d80936421e2d98.exe",
+        "program": "${workspaceRoot}/target/debug/deps/csslancer-61b2cd55060a90be.exe",
         "args": [],
         "stopAtEntry": false,
         "cwd": "${workspaceRoot}",

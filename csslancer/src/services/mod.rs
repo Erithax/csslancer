@@ -275,7 +275,7 @@ impl LanguageServer for CssLancerServer {
         trace!("did_open()");
         let doc = params.text_document;
         let url = doc.uri;
-        let src = Source::new(url.clone(), doc.text, doc.version);
+        let src = Source::new(url.clone(), &doc.text, doc.version);
 
         let mut workspace = self.workspace_write().await;
         workspace.open(url.clone(), src);
