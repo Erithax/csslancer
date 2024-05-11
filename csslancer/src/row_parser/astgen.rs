@@ -150,31 +150,31 @@ fn generate_syntax_kinds(grammar: SyntaxKindsSrc<'_>) -> String {
     let tokens_macro_tts = grammar.tokens.iter().map(|name| format_ident!("{}", name)).collect::<Vec<_>>();
     let tokens = grammar.tokens.iter().map(|name| format_ident!("{}", to_upper_snake_case(name))).collect::<Vec<_>>();
 
-    let at_keywords_macro_tts = grammar.at_keywords.split_whitespace().map(|atkw| format_ident!("{}", atkw.replace("-", "_"))).collect::<Vec<_>>();
+    let at_keywords_macro_tts = grammar.at_keywords.split_whitespace().map(|atkw| format_ident!("{}", atkw.replace('-', "_"))).collect::<Vec<_>>();
     let at_keywords = grammar.at_keywords.split_whitespace().map(|atkw| format_ident!("ATKW_{}", to_upper_snake_case(atkw))).collect::<Vec<_>>();
     
-    let cx_ids_macro_tts = grammar.contextual_ids.into_iter().map(|cxkw| format_ident!("cxid_{cxkw}")).collect::<Vec<_>>();
-    let cx_ids = grammar.contextual_ids.into_iter().map(|cxkw| format_ident!("CXID_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
-    let cx_ids_values = grammar.contextual_ids.into_iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
+    let cx_ids_macro_tts = grammar.contextual_ids.iter().map(|cxkw| format_ident!("cxid_{cxkw}")).collect::<Vec<_>>();
+    let cx_ids = grammar.contextual_ids.iter().map(|cxkw| format_ident!("CXID_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
+    let cx_ids_values = grammar.contextual_ids.iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
 
-    let cx_funcs_macro_tts = grammar.contextual_funcs.into_iter().map(|cxkw| format_ident!("cxfunc_{cxkw}")).collect::<Vec<_>>();
-    let cx_funcs = grammar.contextual_funcs.into_iter().map(|cxkw| format_ident!("CXFUNC_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
-    let cx_funcs_values = grammar.contextual_funcs.into_iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
+    let cx_funcs_macro_tts = grammar.contextual_funcs.iter().map(|cxkw| format_ident!("cxfunc_{cxkw}")).collect::<Vec<_>>();
+    let cx_funcs = grammar.contextual_funcs.iter().map(|cxkw| format_ident!("CXFUNC_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
+    let _cx_funcs_values = grammar.contextual_funcs.iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
 
-    let cx_hash_macro_tts = grammar.contextual_hash.into_iter().map(|cxkw| format_ident!("cxhash_{cxkw}")).collect::<Vec<_>>();
-    let cx_hash = grammar.contextual_hash.into_iter().map(|cxkw| format_ident!("CXHASH_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
-    let cx_hash_values = grammar.contextual_hash.into_iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
+    let cx_hash_macro_tts = grammar.contextual_hash.iter().map(|cxkw| format_ident!("cxhash_{cxkw}")).collect::<Vec<_>>();
+    let cx_hash = grammar.contextual_hash.iter().map(|cxkw| format_ident!("CXHASH_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
+    let _cx_hash_values = grammar.contextual_hash.iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
 
-    let cx_dim_macro_tts = grammar.contextual_dims.into_iter().map(|cxkw| format_ident!("cxdim_{cxkw}")).collect::<Vec<_>>();
-    let cx_dim = grammar.contextual_dims.into_iter().map(|cxkw| format_ident!("CXDIM_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
-    let cx_dim_values = grammar.contextual_dims.into_iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
+    let cx_dim_macro_tts = grammar.contextual_dims.iter().map(|cxkw| format_ident!("cxdim_{cxkw}")).collect::<Vec<_>>();
+    let cx_dim = grammar.contextual_dims.iter().map(|cxkw| format_ident!("CXDIM_{}", to_upper_snake_case(cxkw))).collect::<Vec<_>>();
+    let _cx_dim_values = grammar.contextual_dims.iter().map(|cxkw| cxkw.to_lowercase()).collect::<Vec<_>>();
 
     let dim_str_to_id = |name: &str| match name {
         "%" => format_ident!("DIM_PERCENT"),
         name => format_ident!("DIM_{}", to_upper_snake_case(name)),
     };
 
-    let dimensions = grammar.dimensions.split_whitespace().map(|s| dim_str_to_id(s)).collect::<Vec<_>>();
+    let dimensions = grammar.dimensions.split_whitespace().map(dim_str_to_id).collect::<Vec<_>>();
 
     let css_nodes = grammar.css_nodes.iter().map(|n| format_ident!("{n}")).collect::<Vec<_>>();
     let xcss_nodes = grammar.xcss_nodes.iter().map(|n| format_ident!("XCSS_{n}")).collect::<Vec<_>>();
@@ -632,7 +632,7 @@ impl Field {
     fn token_kind(&self) -> Option<proc_macro2::TokenStream> {
         match self {
             Field::Token(token) => {
-                let t = token.replace("$", "DOLLAR");
+                let t = token.replace('$', "DOLLAR");
                 let token: proc_macro2::TokenStream = t.parse().unwrap();
                 Some(quote! { T![#token] })
             }
@@ -912,7 +912,7 @@ fn extract_enum_traits(ast: &mut AstSrc) {
         let mut variant_traits = enm
             .variants
             .iter()
-            .map(|var| nodes.iter().find(|it| &it.name == var).expect(&format!("Huh: {:?}", var)))
+            .map(|var| nodes.iter().find(|it| &it.name == var).unwrap_or_else(|| panic!("Huh: {:?}", var)))
             .map(|node| node.traits.iter().cloned().collect::<BTreeSet<_>>());
 
         let mut enum_traits = match variant_traits.next() {

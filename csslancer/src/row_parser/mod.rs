@@ -28,21 +28,19 @@ use ra_ap_text_edit::Indel;
 use triomphe::Arc;
 
 use self::{
-    ast::{AstNode, AstToken},
+    ast::AstNode,
     //ptr::{AstPtr, SyntaxNodePtr},
     syntax_error::SyntaxError,
     nodes_types::{
-        PreorderWithTokens, CssLanguage, SyntaxElement, SyntaxElementChildren, SyntaxNode,
-        SyntaxNodeChildren, SyntaxToken, SyntaxTreeBuilder,
+        SyntaxNode, SyntaxTreeBuilder,
     },
     //token_text::TokenText,
 };
 //use parser::{SyntaxKind, T};
-use syntax_kind_gen::{SyntaxKind};
+use syntax_kind_gen::SyntaxKind;
 use crate::T;
 use rowan::{
-    api::Preorder, Direction, GreenNode, NodeOrToken, SyntaxText, TextRange, TextSize,
-    TokenAtOffset, WalkEvent,
+    GreenNode, TextRange, TextSize,
 };
 
 use nodes_gen::SourceFile;
@@ -84,7 +82,7 @@ impl<T> Parse<T> {
     }
 
     pub fn errors(&self) -> Vec<SyntaxError> {
-        let mut errors = if let Some(e) = self.errors.as_deref() { e.to_vec() } else { vec![] };
+        let errors = if let Some(e) = self.errors.as_deref() { e.to_vec() } else { vec![] };
         // TODO validation::validate(&self.syntax_node(), &mut errors);
         errors
     }
@@ -97,16 +95,16 @@ impl<T> Parse<T> {
             .as_ref()
             .map(|errs| 
                 "\n        ".to_string() + &(*errs).iter()
-                    .map(|e| format!("{} at {:?}", e.to_string(), e.range()))
+                    .map(|e| format!("{} at {:?}", e, e.range()))
                     .join(";\n        ")
-            ).unwrap_or(String::new());
+            ).unwrap_or_default();
         res += &Self::fancy_string_internal(&self.syntax_node(), 0);
         res
     }
 
     fn fancy_string_internal(syntax_node: &SyntaxNode, ident: usize) -> String {
         let ident_s = "    ".repeat(ident);
-        return "\n".to_owned()
+        "\n".to_owned()
             + &ident_s
             + &format!(
                 "{:?}[{:?}]({:?}+{:?}={:?}) {{",
@@ -122,7 +120,7 @@ impl<T> Parse<T> {
                 .fold(String::new(), |acc, nex| acc + &nex)
             + "\n"
             + &ident_s
-            + "}"; 
+            + "}"
     }
 }
 
@@ -199,7 +197,7 @@ impl Parse<SourceFile> {
 // pub(crate) use crate::parsing::reparsing::incremental_reparse;
 
 
-pub fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input: &input::Input, f: F) -> (bool, output::Output) {
+pub(crate) fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<()>>(input: &input::Input, f: F) -> (bool, output::Output) {
     //let _p = tracing::span!(tracing::Level::INFO, "TopEntryPoint::parse", ?self).entered();
     let mut p = parser::Parser::new(input);
     let success = f(&mut p).is_some();
@@ -226,10 +224,6 @@ pub fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input
     }
 
     (success, res)
-}
-
-pub fn parse_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(input: &input::Input, f: F) -> output::Output {
-    must_parse_fn(input, f).1
 }
 
 pub(crate) fn build_tree(
@@ -261,7 +255,7 @@ pub(crate) fn build_tree(
     (node, errors, is_eof)
 }
 
-pub(crate) fn must_parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> (bool, (GreenNode, Vec<SyntaxError>)) {
+pub(crate) fn must_parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<()>>(text: &str, f: F) -> (bool, (GreenNode, Vec<SyntaxError>)) {
     let _p = tracing::span!(tracing::Level::INFO, "must_parse_text_as_fn").entered();
     let lexed = lex_to_syn::LexedStr::new(text);
     let parser_input = lexed.to_input();
@@ -271,13 +265,13 @@ pub(crate) fn must_parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<
 }
 
 #[inline]
-pub(crate) fn parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> (GreenNode, Vec<SyntaxError>) {
+pub(crate) fn parse_text_as_fn<F: Fn(&mut parser::Parser) -> Option<()>>(text: &str, f: F) -> (GreenNode, Vec<SyntaxError>) {
     must_parse_text_as_fn(text, f).1
 }
 
 #[inline]
 pub(crate) fn parse_source_file_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
-    parse_text_as_fn(text, |p: &mut parser::Parser| Some(Ok(p.parse_source_file())))
+    parse_text_as_fn(text, |p: &mut parser::Parser| {p.parse_source_file(); Some(())})
 }
 
 impl SourceFile {

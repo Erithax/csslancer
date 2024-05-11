@@ -1,5 +1,5 @@
 
-use super::{cursor::Cursor, hex_string_to_num};
+use super::cursor::Cursor;
 
 pub fn unescape(content: &str) -> String {
     let mut cur = Cursor::new(content);
@@ -7,7 +7,7 @@ pub fn unescape(content: &str) -> String {
     if unquoted_string(&mut cur, &mut res) {
         return res
     }
-    return content.to_string()
+    content.to_string()
 }
 
 
@@ -44,7 +44,7 @@ fn escape(cur: &mut Cursor, result: &mut String, include_new_lines: bool) -> boo
             cur.bump();
             ch = cur.first();
         }
-        if hex_str.len() > 0 {
+        if !hex_str.is_empty() {
             let c = char::from_u32(u32::from_str_radix(&hex_str, 16).unwrap()).unwrap();
             result.push(c);
 
@@ -64,7 +64,7 @@ fn escape(cur: &mut Cursor, result: &mut String, include_new_lines: bool) -> boo
             return newline(cur, result);
         }
     }
-    return false;
+    false
 }
 
 fn newline(cur: &mut Cursor, result: &mut String) -> bool {

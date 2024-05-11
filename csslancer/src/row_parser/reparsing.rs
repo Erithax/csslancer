@@ -13,19 +13,17 @@ use super::{
     event, 
     input::Input, 
     lex_to_syn, 
-    nodes_types::{SyntaxNode, CssLanguage, SyntaxElement},
+    nodes_types::{SyntaxNode, SyntaxElement},
     output::Output, parser::Parser, syntax_kind_gen::SyntaxKind, SyntaxError, SyntaxKind::*, TextRange, TextSize, T
 };
 
 use rowan::{GreenNode, GreenToken, NodeOrToken};
 
-pub(crate) fn reparser(node: &SyntaxNode) -> Option<fn(&mut Parser<'_>) -> Option<(SyntaxKind, Result<(), ()>)>> {
+pub(crate) fn reparser(node: &SyntaxNode) -> Option<fn(&mut Parser<'_>) -> Option<SyntaxKind>> {
     if node.kind() != SyntaxKind::DECLARATIONS {
         return None
     }
-    let Some(parent) = node.parent() else {
-        return None
-    };
+    let parent = node.parent()?;
 
     let is_nested = node.ancestors().any(|a| a.kind() == SyntaxKind::DECLARATIONS);
 
@@ -42,9 +40,9 @@ pub(crate) fn reparser(node: &SyntaxNode) -> Option<fn(&mut Parser<'_>) -> Optio
         SyntaxKind::RULE_SET => |p: &mut Parser| p.parse_rule_set_declaration_opt(),
         SyntaxKind::FONT_FACE => |p: &mut Parser| p.parse_rule_set_declaration_opt(),
         SyntaxKind::VIEW_PORT => |p: &mut Parser| p.parse_rule_set_declaration_opt(),
-        SyntaxKind::KEYFRAME => |p: &mut Parser| p.parse_keyframe_selector_opt().map(|e| (SyntaxKind::KEYFRAME_SELECTOR, e)),
+        SyntaxKind::KEYFRAME => |p: &mut Parser| p.parse_keyframe_selector_opt().map(|_| SyntaxKind::KEYFRAME_SELECTOR),
         SyntaxKind::KEYFRAME_SELECTOR => |p: &mut Parser| p.parse_rule_set_declaration_opt(),
-        SyntaxKind::PROPERTY_AT_RULE => |p: &mut Parser| p.parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)),
+        SyntaxKind::PROPERTY_AT_RULE => |p: &mut Parser| p.parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION),
         SyntaxKind::LAYER => if is_nested {
             |p: &mut Parser| p.parse_layer_declaration(true)
         } else {
@@ -98,7 +96,7 @@ pub(crate) fn reparser(node: &SyntaxNode) -> Option<fn(&mut Parser<'_>) -> Optio
 
 
 /// A parsing function for a specific braced-block.
-pub struct Reparser(fn(&mut Parser<'_>) -> Option<(SyntaxKind, Result<(), ()>)>);
+pub struct Reparser(fn(&mut Parser<'_>) -> Option<SyntaxKind>);
 
 impl Reparser {
     /// If the node is a braced block, return the corresponding `Reparser`.
@@ -106,7 +104,7 @@ impl Reparser {
     pub fn for_node(
         node: &SyntaxNode
     ) -> Option<Reparser> {
-        reparser(&node).map(Reparser)
+        reparser(node).map(Reparser)
     }
 
     /// Re-parse given tokens using this `Reparser`.

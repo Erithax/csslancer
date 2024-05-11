@@ -103,7 +103,7 @@ impl<'a> Cursor<'a> {
         
         let mut success = false;
         let mut encoding_chars_count = 0;
-        while let Some(ch) = self_chars_clone.next() {
+        for ch in self_chars_clone.by_ref() {
             if ch == '"' {
                 success = true;
                 break
@@ -122,7 +122,7 @@ impl<'a> Cursor<'a> {
             return false
         }
         self.bump_n("@charset \"\";".len() + encoding_chars_count);
-        return true
+        true
     }
 
     /// Checks if there is nothing more to consume.

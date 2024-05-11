@@ -17,18 +17,10 @@ pub struct CompletionSettings {
 
 type AliasSettings = HashMap<String, String>;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct HoverSettings {
     pub documentation: bool,
     pub references: bool,
-}
-impl Default for HoverSettings {
-    fn default() -> Self {
-        Self {
-            documentation: false,
-            references: false,
-        }
-    }
 }
 
 pub struct LanguageSettings {
@@ -243,9 +235,9 @@ pub struct PropertyDataSource {
 
 impl From<PropertyDataSource> for PropertyData {
     fn from(value: PropertyDataSource) -> Self {
-        return PropertyData {
+        PropertyData {
             name: value.name,
-            description: value.description.map(|d| Content::String(d)),
+            description: value.description.map(Content::String),
             browsers: value.browsers,
             restrictions: value.restrictions,
             status: value.status,
@@ -254,7 +246,6 @@ impl From<PropertyDataSource> for PropertyData {
             references: value.references,
             relevance: value.relevance,
             at_rule: value.at_rule,
-
         }
     }
 }
@@ -285,9 +276,9 @@ pub struct AtDirectiveDataSource {
 
 impl From<AtDirectiveDataSource> for AtDirectiveData {
     fn from(value: AtDirectiveDataSource) -> Self {
-        return AtDirectiveData {
+        AtDirectiveData {
             name: value.name,
-            description: value.description.map(|d| Content::String(d)),
+            description: value.description.map(Content::String),
             browsers: value.browsers,
             status: value.status,
             references: value.references,
@@ -324,14 +315,14 @@ impl TryFrom<f64> for CssDataVersion {
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         if (value - 1.1).abs() < 0.0000001 {return Ok(Self::OneOne)}
         if (value - 1.0).abs() < 0.0000001 {return Ok(Self::One)}
-        return Err(format!("invalid version float `{}`", value))
+        Err(format!("invalid version float `{}`", value))
     }
 }
 impl From<CssDataVersion> for f64 {
     fn from(value: CssDataVersion) -> Self {
         match value {
-            CssDataVersion::One => return 1.0,
-            CssDataVersion::OneOne => return 1.1
+            CssDataVersion::One => 1.0,
+            CssDataVersion::OneOne => 1.1
         }
     }
 }
@@ -397,7 +388,7 @@ pub struct CssDataV1Source {
 
 impl From<CssDataV1Source> for CssDataV1 {
     fn from(value: CssDataV1Source) -> Self {
-        return Self { 
+        Self { 
             version: value.version.try_into().unwrap(), 
             properties: value.properties.into_iter().map(|x| x.into()).collect(), 
             at_directives: value.at_directives.into_iter().map(|x| x.into()).collect(), 
@@ -417,16 +408,16 @@ pub trait ProvideCssData {
 
 impl ProvideCssData for CssDataV1 {
     fn provide_properties(&mut self) -> Vec<PropertyData> {
-        return std::mem::take(&mut self.properties)
+        std::mem::take(&mut self.properties)
     }
     fn provide_at_directives(&mut self) -> Vec<AtDirectiveData> {
-        return std::mem::take(&mut self.at_directives)
+        std::mem::take(&mut self.at_directives)
     }
     fn provide_pseudo_classes(&mut self) -> Vec<PseudoClassData> {
-        return std::mem::take(&mut self.pseudo_classes)
+        std::mem::take(&mut self.pseudo_classes)
     }
     fn provide_pseudo_elements(&mut self) -> Vec<PseudoElementData> {
-        return std::mem::take(&mut self.pseudo_elements)
+        std::mem::take(&mut self.pseudo_elements)
     }
 }
 

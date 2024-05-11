@@ -1,4 +1,3 @@
-use ego_tree::NodeId;
 use itertools::Itertools;
 use strum::IntoEnumIterator;
 use tower_lsp::lsp_types::{
@@ -13,7 +12,6 @@ use self::csslancer_tokens::SemTokenKind;
 use self::delta::token_delta;
 use self::token_encode::encode_tokens;
 use crate::row_parser::{
-    self,
     syntax_kind_gen::SyntaxKind,
 };
 
@@ -117,7 +115,7 @@ fn tokenize_node_rec(syntax_node: SyntaxNode<CssLanguage>) -> Box<dyn Iterator<I
 
     let children = syntax_node
         .children()
-        .flat_map(|ch| tokenize_node_rec(ch));
+        .flat_map(tokenize_node_rec);
 
     Box::new(node_token.chain(children))
 }

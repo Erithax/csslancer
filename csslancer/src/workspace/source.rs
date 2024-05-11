@@ -1,6 +1,6 @@
 use crate::interop::CssLancerRange;
-use crate::row_parser::{nodes_gen::SourceFile, Parse, parser::Parser};
-use rowan::{GreenNode, SyntaxText, TextRange, TextSize};
+use crate::row_parser::{nodes_gen::SourceFile, Parse};
+use rowan::{SyntaxText, TextRange, TextSize};
 use lsp_types::Url;
 use smol_str::ToSmolStr;
 
@@ -38,18 +38,18 @@ impl Source {
         Self {
             url,
             version,
-            lines: Line::lines(&text),
+            lines: Line::lines(text),
             parse: SourceFile::parse(text),
         }   
     }
 
     /// Create a source file without a real id and path, usually for testing.
     pub fn detached(text: impl Into<String>) -> Self {
-        return Self::new(
+        Self::new(
             Url::parse("https://localhost/detached").unwrap(),
             &text.into(),
             0,
-        );
+        )
     }
 
     pub fn text(&self) -> SyntaxText {
@@ -302,7 +302,7 @@ impl Line {
                 }
             }
         });
-        return lines.into_iter();
+        lines.into_iter()
     }
 }
 
@@ -313,11 +313,11 @@ fn len_utf16(string: &str) -> usize {
 }
 
 pub fn is_newline(c: char) -> bool {
-    return c == '\n'         // line feed
+    c == '\n'         // line feed
         || c == '\x0B'       // vertical tab
         || c == '\x0C'       // form feed
         || c == '\r'         // carriage return
         || c == '\u{0085}'   // next line
         || c == '\u{2028}'   // line seperator
-        || c == '\u{2029}'; // paragraph seperator
+        || c == '\u{2029}'   // paragraph seperator
 }

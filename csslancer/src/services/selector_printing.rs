@@ -1,4 +1,6 @@
 
+use std::cmp::Ordering;
+
 use ego_tree::{NodeId, NodeRef, Tree};
 use lsp_types::{LanguageString, MarkedString};
 use regex::{Regex, RegexBuilder};
@@ -7,10 +9,9 @@ use rowan::SyntaxNode;
 use crate::row_parser::ast::AstNode;
 use crate::row_parser::nodes_types::{CssLanguage, SyntaxToken};
 use crate::tokenizer::extra::unescape;
-use crate::{ext::TreeAttach};
+use crate::ext::TreeAttach;
 use crate::data::data_manager::CssDataManager;
 use crate::row_parser::{
-    self,
     syntax_kind_gen::SyntaxKind,
     nodes_gen,
 };
@@ -47,7 +48,7 @@ impl Element {
                 return Some(attribute)
             }
         }
-        return None
+        None
     }
 
     // pub fn get_value(&self, name: &str) -> Option<String> {
@@ -65,7 +66,7 @@ impl Element {
                 return Some(&attribute.value)
             }
         }
-        return None
+        None
     }
 
     pub fn append(&mut self, text: &str) {
@@ -105,7 +106,7 @@ struct MarkedStringPrinter {
 impl MarkedStringPrinter {
 
     pub fn new(quote: String) -> Self {
-        return Self {
+        Self {
             result: Vec::new(),
             quote,
         }
@@ -126,7 +127,7 @@ impl MarkedStringPrinter {
             Some(fo) => format!("{}\n … ", fo.text) + &self.result.join("\n"),
             None => self.result.join("\n")
         };
-        return vec![MarkedString::LanguageString(LanguageString {
+        vec![MarkedString::LanguageString(LanguageString {
             language: "html".to_string(),
             value,
         })]
@@ -162,7 +163,7 @@ impl MarkedStringPrinter {
 
         // element name
         if let Some(n) = name {
-            content += &n;
+            content += n;
         } else {
             content += "element";
         }
@@ -191,7 +192,7 @@ struct Quotes;
 impl Quotes {
     pub fn ensure(content: &mut String, value: &str, which: &str) {
         content.push_str(which);
-        content.push_str(&Self::remove(value));
+        content.push_str(Self::remove(value));
         content.push_str(which);
     }
 
@@ -201,7 +202,7 @@ impl Quotes {
         if reg.is_match(value) {
             return &value[1..value.len()-1]
         }
-        return value;
+        value
     }
 }
 
@@ -221,7 +222,7 @@ impl std::ops::Add for Specificity {
         self.id += rhs.id;
         self.attr += rhs.attr;
         self.tag += rhs.tag;
-        return self
+        self
     }
 }
 
@@ -250,7 +251,7 @@ fn clone_to_root(ele_tree: &Tree<Element>, node_id: NodeId) -> (Tree<Element>, N
     }
 
     res.root_mut().append_id(curr_node);
-    return (res, new_node_id)
+    (res, new_node_id)
 }
 
 /// Odd function
@@ -296,7 +297,7 @@ fn to_element(syntax_node: &nodes_gen::SimpleSelector, ele_tree: Option<&Tree<El
             SELECTOR_COMBINATOR => {
                 if let (Some(ele_tree), Some(parent_element)) = (&ele_tree, parent_ele_id) {
                     let text = child.text().to_string();
-                    let segments: Vec<&str> = text.split("&").collect();
+                    let segments: Vec<&str> = text.split('&').collect();
                     
                     debug_assert!(segments.len() != 1);
                     if segments.len() == 1 {
@@ -376,7 +377,7 @@ fn to_element(syntax_node: &nodes_gen::SimpleSelector, ele_tree: Option<&Tree<El
             _ => {}
         }
     }
-    return res_tree
+    res_tree
 }
 
 
@@ -407,9 +408,9 @@ impl SelectorPrinting {
         let reg = Regex::new(r"^::?(?<ident>[\w-]+)").unwrap();
         let captures = reg.captures(text);
         if let Some(Some(ident)) = captures.map(|c| c.name("ident")) {
-            return self.get_pseudo_element(&("::".to_owned() + ident.as_str())).is_some();
+            self.get_pseudo_element(&("::".to_owned() + ident.as_str())).is_some()
         } else {
-            return false
+            false
         }
     }
 
@@ -427,18 +428,16 @@ impl SelectorPrinting {
             for child_node in container_node.children() {
                 let item_specificity = self.calculate_score(&child_node);
 
-                if item_specificity.id > most_specific_list_item.id {
-                    most_specific_list_item = item_specificity;
-                    continue;
-                } else if item_specificity.id < most_specific_list_item.id {
-                    continue;
+                match item_specificity.id.cmp(&most_specific_list_item.id) {
+                    Ordering::Greater => {most_specific_list_item = item_specificity; continue},
+                    Ordering::Less => continue,
+                    Ordering::Equal => {}
                 }
 
-                if item_specificity.attr > most_specific_list_item.attr {
-                    most_specific_list_item = item_specificity;
-                    continue;
-                } else if item_specificity.attr < most_specific_list_item.attr {
-                    continue;
+                match item_specificity.attr.cmp(&most_specific_list_item.attr) {
+                    Ordering::Greater => {most_specific_list_item = item_specificity; continue},
+                    Ordering::Less => continue,
+                    Ordering::Equal => {}
                 }
 
                 if item_specificity.tag > most_specific_list_item.tag {
@@ -447,7 +446,7 @@ impl SelectorPrinting {
                 }
             }
         }
-        return most_specific_list_item;
+        most_specific_list_item
     }
 
 
@@ -470,7 +469,7 @@ impl SelectorPrinting {
                     let grand_childs: Vec<SyntaxNode<CssLanguage>> = child.children().collect();
 
                     if self.is_pseudo_element_identifier(text) {
-                        if text.to_lowercase().starts_with("::slotted") && grand_childs.len() > 0 {
+                        if text.to_lowercase().starts_with("::slotted") && !grand_childs.is_empty() {
                             // The specificity of ::slotted() is that of a pseudo-element, plus the specificity of its argument.
                             // ::slotted() does not allow a selector list as its argument, but this isn't the right place to give feedback on validity.
                             // Reporting the most specific child will be correct for correct CSS and will be forgiving in case of mistakes.
@@ -488,12 +487,12 @@ impl SelectorPrinting {
                     }
                     
                     // the most specific child selector
-                    if RegexBuilder::new("^:(?:not|has|is)").case_insensitive(true).build().unwrap().is_match(text) && grand_childs.len() > 0 {
+                    if RegexBuilder::new("^:(?:not|has|is)").case_insensitive(true).build().unwrap().is_match(text) && !grand_childs.is_empty() {
                         specificity += self.calculate_most_specific_list_item(grand_childs);
                         continue
                     }
 
-                    if RegexBuilder::new("^:(?:host|host-context)").case_insensitive(true).build().unwrap().is_match(text) && grand_childs.len() > 0 {
+                    if RegexBuilder::new("^:(?:host|host-context)").case_insensitive(true).build().unwrap().is_match(text) && !grand_childs.is_empty() {
                         // The specificity of :host() is that of a pseudo-class, plus the specificity of its argument.
                         // The specificity of :host-context() is that of a pseudo-class, plus the specificity of its argument.
                         specificity.attr += 1;
@@ -503,7 +502,7 @@ impl SelectorPrinting {
 
                     if 
                         RegexBuilder::new("^:(?:nth-child|nth-last-child)").case_insensitive(true).build().unwrap().is_match(text) 
-                        && grand_childs.len() > 0 
+                        && !grand_childs.is_empty()
                     {
                         /* The specificity of the :nth-child(An+B [of S]?) pseudo-class is the specificity of a single pseudo-class plus, if S is specified, the specificity of the most specific complex selector in S */
                         // https://www.w3.org/TR/selectors-4/#the-nth-child-pseudo
@@ -533,7 +532,7 @@ impl SelectorPrinting {
                         child.first_token()
                             .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); t.next_token()})
                             .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); t.next_token()})
-                            .as_ref().and_then(|t| {is_an_plus_b = is_an_plus_b || is_an(t); Some(t)});
+                            .as_ref().map(|t| {is_an_plus_b = is_an_plus_b || is_an(t); t});
 
                         println!("is_an_plus_b: {is_an_plus_b}");
                         if is_an_plus_b {
@@ -583,23 +582,21 @@ impl SelectorPrinting {
                 specificity += self.calculate_score(&child);
             }
         }
-        return specificity;
+        specificity
     }
 
 
 }
 
 struct SelectorElementBuilder<'a> {
-    node_tree: &'a SyntaxNode<CssLanguage>,
     ele_tree: &'a mut Tree<Element>,
     prev_node: Option<SyntaxNode<CssLanguage>>,
     element: NodeId,
 }
 
 impl<'a> SelectorElementBuilder<'a> {
-    pub fn new(node_tree: &'a SyntaxNode<CssLanguage>, ele_tree: &'a mut Tree<Element>, element: NodeId) -> SelectorElementBuilder<'a> {
-        return Self {
-            node_tree,
+    pub fn new(ele_tree: &'a mut Tree<Element>, element: NodeId) -> SelectorElementBuilder<'a> {
+        Self {
             ele_tree,
             prev_node: None,
             element,
@@ -607,6 +604,7 @@ impl<'a> SelectorElementBuilder<'a> {
     }
 
     // Processes node of type 'CssNodeType::Selector` `selector`
+    #[allow(clippy::collapsible_if)]
     pub fn process_selector(&mut self, selector: &nodes_gen::Selector) {
         let selector = selector.syntax();
         let mut parent_element = None;
@@ -640,7 +638,7 @@ impl<'a> SelectorElementBuilder<'a> {
                         }
                     }
     
-                    if prev.text().to_string() == "~" {
+                    if prev.text() == "~" {
                         self.ele_tree.get_mut(self.element).unwrap().append(Element::new_label("\u{22EE}")).id(); // vertical elipses '⋮'
                     }
                 }
@@ -667,8 +665,7 @@ impl<'a> SelectorElementBuilder<'a> {
 }
 
 fn is_new_selector_context(node: &SyntaxNode<CssLanguage>) -> bool {
-    return node.kind() == SyntaxKind::XCSS_MIXIN_DECLARATION ||
-        node.kind() == SyntaxKind::SOURCE_FILE
+    matches!(node.kind(), SyntaxKind::XCSS_MIXIN_DECLARATION | SyntaxKind::SOURCE_FILE)
 }
 
 /// Creates `Tree<Element>` for CssNodeType::Selector at `node_id` in `node_tree`, searching upwards of `node_id` for parent rulesets
@@ -701,7 +698,7 @@ fn selector_to_element(typed_node: &nodes_gen::Selector) -> Option<Tree<Element>
 
     let mut ele_tree = Tree::new(Element::default());
     let ele_tree_root = ele_tree.root().id();
-    let mut builder = SelectorElementBuilder::new(&syntax_node, &mut ele_tree, ele_tree_root); 
+    let mut builder = SelectorElementBuilder::new(&mut ele_tree, ele_tree_root); 
     for rule_set in parent_rule_sets.into_iter().rev() { 
         let mut selectors = rule_set.selectors();
         
@@ -711,8 +708,7 @@ fn selector_to_element(typed_node: &nodes_gen::Selector) -> Option<Tree<Element>
     }
 
     builder.process_selector(typed_node);
-    return Some(ele_tree);
-
+    Some(ele_tree)
 }
 
 
@@ -725,7 +721,7 @@ fn selector_to_element(typed_node: &nodes_gen::Selector) -> Option<Tree<Element>
 #[cfg(test)]
 mod selector_printing_test {
 
-    use ego_tree::{NodeId, NodeRef};
+    use ego_tree::NodeRef;
     use lsp_types::{LanguageString, MarkedString, Url};
     use rowan::{TextSize, TokenAtOffset};
 
@@ -791,7 +787,7 @@ mod selector_printing_test {
     fn assert_selector(input: &str, selector_name: &str, expected: &str) {
         let src_and_selector = do_parse(input.to_owned(), selector_name.to_owned());
         assert!(src_and_selector.is_some());
-        let (source, selector) = src_and_selector.unwrap();
+        let (_source, selector) = src_and_selector.unwrap();
         //source.tree.0.assert_valid();
         //let s = source.tree.fancy_string();
         //println!("{s}");
@@ -813,9 +809,9 @@ mod selector_printing_test {
         // let p: Parser = Parser::new_with_text(input.to_owned());
         // let node = p.into_parsed_by_fn(Parser::parse_simple_selector);
 
-        let (success, (green, errors)) = crate::row_parser::must_parse_text_as_fn(
+        let (success, (green, _errors)) = crate::row_parser::must_parse_text_as_fn(
             input, 
-            |p: &mut Parser| p.parse_simple_selector().map(|o| Ok(())));
+            |p: &mut Parser| p.parse_simple_selector());
         let root = SyntaxNode::new_root(green.clone());
 
         assert!(success);
@@ -832,7 +828,7 @@ mod selector_printing_test {
         println!("input: {input}, selector_name: {selector_name}, expected: {expected:?}");
         let tree_and_selector = do_parse(input.to_owned(), selector_name.to_owned());
         assert!(tree_and_selector.is_some());
-        let (source, selector) = tree_and_selector.unwrap();
+        let (_source, selector) = tree_and_selector.unwrap();
         let selector_printer = selector_printing::SelectorPrinting::new(true, None);
         let printed_element = selector_printer.selector_to_marked_string(&selector, None);
 

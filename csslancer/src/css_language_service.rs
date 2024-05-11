@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 impl Default for LanguageSettings {
     fn default() -> Self {
-        return LanguageSettings {
+        LanguageSettings {
             validate: true,
             lint: HashMap::new(),
             completion: CompletionSettings {
@@ -16,6 +16,6 @@ impl Default for LanguageSettings {
                 references: true,
             },
             alias: HashMap::new(),
-        };
+        }
     }
 }

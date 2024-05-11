@@ -175,13 +175,13 @@ impl<'t> Parser<'t> {
         kinds.contains(self.current())
     }
 
-    /// Checks if the current token is contextual keyword `kw`.
-    pub(crate) fn at_contextual_kw(&self, kw: SyntaxKind) -> bool {
-        self.inp.contextual_kind(self.pos) == kw
+    /// Checks if the current token is contextual token.
+    pub(crate) fn at_contextual_token(&self, token: SyntaxKind) -> bool {
+        self.inp.contextual_kind(self.pos) == token
     }
 
-    pub(crate) fn eat_contextual_kw(&mut self, kind: SyntaxKind) -> bool {
-        if !self.at_contextual_kw(kind) {
+    pub(crate) fn eat_contextual_token(&mut self, kind: SyntaxKind) -> bool {
+        if !self.at_contextual_token(kind) {
             return false
         }
         self.bump_remap(kind);
@@ -189,9 +189,9 @@ impl<'t> Parser<'t> {
     }
 
     /// Checks if the nth token is contextual keyword `kw`.
-    pub(crate) fn nth_at_contextual_kw(&self, n: usize, kw: SyntaxKind) -> bool {
-        self.inp.contextual_kind(self.pos + n) == kw
-    }
+    // pub(crate) fn nth_at_contextual_kw(&self, n: usize, kw: SyntaxKind) -> bool {
+    //     self.inp.contextual_kind(self.pos + n) == kw
+    // }
 
     /// Starts a new node in the syntax tree. All nodes and tokens
     /// consumed between the `start` and the corresponding `Marker::complete`
@@ -288,13 +288,13 @@ impl<'t> Parser<'t> {
 
     /// Consume the next token if it is `kind` or emit an error
     /// otherwise.
-    pub(crate) fn expect(&mut self, kind: SyntaxKind) -> bool {
-        if self.eat(kind) {
-            return true;
-        }
-        self.error(format!("expected {kind:?}"));
-        false
-    }
+    // pub(crate) fn expect(&mut self, kind: SyntaxKind) -> bool {
+    //     if self.eat(kind) {
+    //         return true;
+    //     }
+    //     self.error(format!("expected {kind:?}"));
+    //     false
+    // }
 
     /// Create an error node and consume the next token.
     pub(crate) fn err_and_bump(&mut self, message: &str) {

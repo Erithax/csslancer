@@ -61,7 +61,7 @@ impl CssLancerServer {
         client: Client,
         lsp_tracing_layer_handle: reload::Handle<Option<LspLayer>, Registry>,
     ) -> Self {
-        return Self {
+        Self {
             workspace: Default::default(),
             const_config: Default::default(),
             client_capabilities: Default::default(),
@@ -71,7 +71,7 @@ impl CssLancerServer {
             client,
             semantic_tokens_delta_cache: Arc::new(SyncRwLock::new(SemanticTokenCache::default())),
             lsp_tracing_layer_handle,
-        };
+        }
     }
 
     pub fn new_dud() -> Self {
@@ -88,7 +88,7 @@ impl CssLancerServer {
 
         //crate::logging::tracing_shutdown();
 
-        return Self::new(client, lsp_tracing_layer_handle)
+        Self::new(client, lsp_tracing_layer_handle)
     }
 
     pub async fn workspace_read(&self) -> tokio::sync::RwLockReadGuard<'_, Workspace> {

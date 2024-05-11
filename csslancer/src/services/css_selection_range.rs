@@ -50,14 +50,10 @@ impl CssLancerServer {
         let target = match source.parse.syntax_node().token_at_offset(TextSize::new(offset.try_into().unwrap())) {
             rowan::TokenAtOffset::Single(s) => s,
             rowan::TokenAtOffset::Between(a, b) => 
-                if a.kind().is_trivia() {
+                if a.kind().is_trivia() || (a.kind().is_punct() && !b.kind().is_punct()) {
                     b
-                } else if b.kind().is_trivia() {
+                } else if b.kind().is_trivia() || (b.kind().is_punct() && !a.kind().is_punct()) {
                     a
-                } else if b.kind().is_punct() && !a.kind().is_punct() {
-                    a
-                } else if a.kind().is_punct() && !b.kind().is_punct() {
-                    b
                 } else {
                     b
                 }
@@ -79,7 +75,7 @@ impl CssLancerServer {
                     }
 
                     if matches!(curr_node.kind(), SyntaxKind::L_CURLY | SyntaxKind::R_CURLY | SyntaxKind::WHITESPACE) {
-                        curr_node_opt = curr_node.parent().and_then(|p| Some(SyntaxElement::Node(p)));
+                        curr_node_opt = curr_node.parent().map(SyntaxElement::Node);
                         continue
                     }
 
@@ -94,7 +90,7 @@ impl CssLancerServer {
 
                     res.push((curr_node.text_range().start().into(), curr_node.text_range().end().into()));
 
-                    curr_node_opt = curr_node.parent().and_then(|p| Some(SyntaxElement::Node(p)));
+                    curr_node_opt = curr_node.parent().map(SyntaxElement::Node);
                 }
                 res
             };
@@ -118,13 +114,13 @@ impl CssLancerServer {
         if let Some(current) = current {
             return current;
         }
-        return SelectionRange {
+        SelectionRange {
             range: lsp_types::Range {
                 start: position,
                 end: position,
             },
             parent: None,
-        };
+        }
     }
 }
 
@@ -140,7 +136,6 @@ impl CssLancerServer {
 mod css_selection_range_test {
 
     use lsp_types::Url;
-    use smol_str::ToSmolStr;
 
     use crate::config::PositionEncoding;
     use crate::interop::ClientRange;

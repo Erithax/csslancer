@@ -25,7 +25,7 @@ impl CssLancerServer {
                     offset_to_position(start, self.const_config().position_encoding, &src),
                     offset_to_position(end, self.const_config().position_encoding, &src),
                 );
-                return Diagnostic::new(
+                Diagnostic::new(
                     range,
                     Some(DiagnosticSeverity::WARNING),
                     Some(NumberOrString::String(se.to_string())),
@@ -33,7 +33,7 @@ impl CssLancerServer {
                     se.to_string(),
                     None,
                     None,
-                );
+                )
             };
 
             errors

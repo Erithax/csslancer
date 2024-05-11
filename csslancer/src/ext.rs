@@ -201,7 +201,7 @@ impl<T: Default> TreeAttach for Tree<T> {
         for ch_id in ch_ids {
             self.attach_tree(other, new_id, ch_id);
         }
-        return new_id
+        new_id
     }
 }
 

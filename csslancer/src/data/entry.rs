@@ -49,21 +49,20 @@ pub fn get_entry_description(entry: IEntry2, does_support_markdown: bool, settin
         }
     };
 
-    if result.value == "" {
-        return None;
+    if result.value.is_empty() {
+        return None
     }
-
-    return Some(result)
+    Some(result)
 }
 
 pub fn text_to_marked_string(mut text: String) -> MarkedString {
     markify_string(&mut text);
-    return MarkedString::String(text);
+    MarkedString::String(text)
 }
 
 pub fn text_to_marked_string_inner(mut text: String) -> String {
     markify_string(&mut text);
-    return text
+    text
 }
 
 // escape markdown syntax tokens
@@ -71,8 +70,8 @@ pub fn markify_string(text: &mut String) {
     for ch in "\\[]{}()`*#+-.!".chars() {
         *text = text.replace(&ch.to_string(), &("\\".to_owned() + &ch.to_string()));
     }
-    *text = text.replace("<", "&lt;");
-    *text = text.replace(">", "&gt;");
+    *text = text.replace('<', "&lt;");
+    *text = text.replace('>', "&gt;");
     //text = text.replace("[\\`*_{}[\\]()#+\\-.!]", "\\$&"); // escape markdown syntax tokens: http://daringfireball.net/projects/markdown/syntax#backslash
     //return text.replace("<", "&lt;").replace(">", "&gt;");
 }
@@ -92,13 +91,13 @@ fn get_entry_string_description(entry: IEntry2, settings: &Option<HoverSettings>
     let mut result = String::new();
 
     if let Some(settings) = settings {
-        if settings.documentation != false {
+        if settings.documentation {
             if let Some(status) = entry.status() {
                 result += get_entry_status(*status);
             }
-            result += &desc.value();
+            result += desc.value();
     
-            if let Some(browser_label) = get_browser_label(&entry.browsers().as_ref().unwrap_or(&Vec::new())) {
+            if let Some(browser_label) = get_browser_label(entry.browsers().as_ref().unwrap_or(&Vec::new())) {
                 result += "\n(";
                 result += &browser_label;
                 result += ")";
@@ -109,18 +108,18 @@ fn get_entry_string_description(entry: IEntry2, settings: &Option<HoverSettings>
         }
 
         if let Some(refs) = entry.references() {
-            if refs.len() > 0 && settings.references != false {
-                if result.len() > 0 {
+            if !refs.is_empty() && settings.references {
+                if !result.is_empty() {
                     result += "\n\n";
                 }
-                result += &refs.into_iter().map(|r| {
-                    return r.name.to_owned() + ": " + &r.url
+                result += &refs.iter().map(|r| {
+                    r.name.to_owned() + ": " + &r.url
                 }).collect::<Vec<String>>().join(" | ");
             }
         }
     }
 
-    return result;
+    result
 }
 
 fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSettings>) -> String {
@@ -133,7 +132,7 @@ fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSetting
 
     let mut result = String::new();
     if let Some(settings) = settings {
-        if settings.documentation != false {
+        if settings.documentation {
             if let Some(status) = entry.status() {
                 result += get_entry_status(*status);
             }
@@ -148,7 +147,7 @@ fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSetting
                 }
             };
         
-            if let Some(browser_label) = get_browser_label(&entry.browsers().as_ref().unwrap_or(&Vec::new())) {
+            if let Some(browser_label) = get_browser_label(entry.browsers().as_ref().unwrap_or(&Vec::new())) {
                 result += "\n\n(";
                 result += &text_to_marked_string_inner(browser_label);
                 result += ")";
@@ -160,37 +159,35 @@ fn get_entry_markdown_description(entry: IEntry2, settings: &Option<HoverSetting
         }
 
         if let Some(refs) = entry.references() {
-            if refs.len() > 0 && settings.references != false {
+            if !refs.is_empty() && settings.references {
 
-                if result.len() > 0 {
+                if !result.is_empty() {
                     result += "\n\n";
                 }
-                result += &refs.into_iter().map(|r| {
-                    return "[".to_owned() + &r.name + "](" + &r.url + ")";
+                result += &refs.iter().map(|r| {
+                    "[".to_owned() + &r.name + "](" + &r.url + ")"
                 }).collect::<Vec<String>>().join(" | ");
             }
         }
 
     }
-
-
-    return result;
+    result
 }
 
 /**
  * Input is like `["E12","FF49","C47","IE","O"]`
 * Output is like `Edge 12, Firefox 49, Chrome 47, IE, Opera`
 */
-pub fn get_browser_label(browsers: &Vec<String>) -> Option<String> {
-    if browsers.len() == 0 {
-        return None;
+pub fn get_browser_label(browsers: &[String]) -> Option<String> {
+    if browsers.is_empty() {
+        return None
     }
 
     return Some(browsers
-        .into_iter().map(|b| {
+        .iter().map(|b| {
             let mut result = "".to_owned();
             let reg = Regex::new(r"(?<name>[A-Z]+)(?<version>\d+)?").unwrap();
-            let mut matches = reg.captures_iter(&b);
+            let mut matches = reg.captures_iter(b);
 
             let first_mat = matches.next();
             let name = first_mat.as_ref().map(|f| f["name"].to_owned());
@@ -207,7 +204,7 @@ pub fn get_browser_label(browsers: &Vec<String>) -> Option<String> {
                 result += " ";
                 result += &version;
             }
-            return result;
+            result
         }).collect::<Vec<String>>().join(", "));
 }
 

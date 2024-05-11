@@ -12,7 +12,6 @@ use crate::interop::{csslancer_to_client, client_to_csslancer, LspPosition};
 use crate::row_parser::ast::AstNode;
 use crate::row_parser::nodes_gen;
 use crate::row_parser::{
-    self,
     nodes_types::CssLanguage,
     syntax_kind_gen::SyntaxKind,
 };
@@ -27,23 +26,21 @@ impl CssLancerServer {
     pub fn get_hover(&self, src: &Source, position: LspPosition, settings: &Option<HoverSettings>) -> anyhow::Result<Option<Hover>> {
         let position_encoding = self.const_config().position_encoding;
 
-        let t = src.parse.syntax_node();
-
         let get_lsp_range = |node: SyntaxNode<CssLanguage>| {
             let tr = node.text_range();
-            return Some(Range {
-                start: csslancer_to_client::offset_to_position(tr.start().into(), position_encoding, &src),
-                end: csslancer_to_client::offset_to_position(tr.end().into(), position_encoding, &src),
+            Some(Range {
+                start: csslancer_to_client::offset_to_position(tr.start().into(), position_encoding, src),
+                end: csslancer_to_client::offset_to_position(tr.end().into(), position_encoding, src),
             })
         };
 
-        let offset = client_to_csslancer::position_to_offset(position, position_encoding, &src);
+        let offset = client_to_csslancer::position_to_offset(position, position_encoding, src);
         trace!(offset = offset);
         // node path (leaf first, root last)
         fn get_node_path(sn: SyntaxNode<CssLanguage>, text_size: TextSize) -> Vec<SyntaxNode<CssLanguage>> { 
             let target = match sn.token_at_offset(text_size) {
                 TokenAtOffset::Single(s) => {s},
-                TokenAtOffset::Between(a, b) => {
+                TokenAtOffset::Between(_a, b) => {
                     b
                 }
                 TokenAtOffset::None => {
@@ -88,7 +85,7 @@ impl CssLancerServer {
                 trace!("hovering simple selector");
                 let simple_selector = nodes_gen::SimpleSelector::cast(syntax_node).unwrap();
                 // Some sass specific at rules such as `@at-root` are parsed as `SimpleSelector`
-                if !simple_selector.syntax.text().to_string().starts_with("@") {
+                if !simple_selector.syntax.text().to_string().starts_with('@') {
                     hover = Some(Hover {
                         contents: HoverContents::Array(self.css_data_manager.simple_selector_to_marked_string(&simple_selector, flag_opts)),
                         range: get_lsp_range(simple_selector.syntax),
@@ -157,7 +154,7 @@ impl CssLancerServer {
         if let Some(ref mut hover) = hover {
             self.convert_contents(&mut hover.contents);
         }
-        return Ok(hover)
+        Ok(hover)
     }
 
     fn convert_contents(&self, hover_contents: &mut HoverContents) {
@@ -171,10 +168,10 @@ impl CssLancerServer {
             },
             HoverContents::Array(marked_string) => {
                 // convert all from LanguageString to String
-                for mut ms in marked_string.into_iter() {
+                for mut ms in marked_string.iter_mut() {
                     *ms = match &mut ms {
                         MarkedString::LanguageString(ref mut ls) => {
-                            MarkedString::String(std::mem::take(&mut (*ls).value))
+                            MarkedString::String(std::mem::take(&mut (ls).value))
                         },
                         s => {(*s).to_owned()}
                     }   

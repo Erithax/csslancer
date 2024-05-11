@@ -17,7 +17,6 @@ use super::{
     lex_to_syn::LexedStr, 
     output::Step,
     syntax_kind_gen::SyntaxKind::{self, *},
-    input::Input,
 };
 
 #[derive(Debug)]
@@ -36,13 +35,13 @@ fn cx_hash(s: &str) -> Option<SyntaxKind> {
         _ => return None,
     }
     let mut count = 0;
-    while let Some(c) = chars.next() {
+    for c in chars {
         if !c.is_ascii_hexdigit() {
             return None
         }
         count += 1;
     }
-    return matches!(count, 3 | 4 | 6 | 8).then_some(SyntaxKind::CXHASH_VALID_HEX)
+    matches!(count, 3 | 4 | 6 | 8).then_some(SyntaxKind::CXHASH_VALID_HEX)
 }
 
 fn cx_func(s: &str) -> Option<SyntaxKind> {
@@ -86,10 +85,8 @@ fn cx_id(s: &str) -> Option<SyntaxKind> {
         "valid_custom_prop" => Some(T![cxid_valid_custom_prop]),
         s if {
             let mut chars = s.chars();
-            (
-                chars.next().is_some_and(|c| c == '-') && 
+            chars.next().is_some_and(|c| c == '-') && 
                 chars.next().is_some_and(|c| c == '-')
-            )
         } => {Some(T![cxid_valid_custom_prop])},
         _ => None
     }

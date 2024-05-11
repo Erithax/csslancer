@@ -1,9 +1,8 @@
 
 
-use std::iter::StepBy;
 use std::ops;
 
-use crate::tokenizer::{tokenize_file, tokenize, TokenKind};
+use crate::tokenizer::{tokenize_file, TokenKind};
 use crate::T;
 use super::syntax_kind_gen::SyntaxKind;
 
@@ -150,7 +149,7 @@ impl<'a> Converter<'a> {
         // We drop some useful information here (see patterns with double dots `..`)
         // Storing that info in `SyntaxKind` is not possible due to its layout requirements of
         // being `u16` that come from `rowan::SyntaxKind`.
-        let mut err = "";
+        let err = "";
 
 
 
@@ -226,7 +225,7 @@ impl<'a> Converter<'a> {
                         s if s.ends_with("rad") => T![DIM_RAD],
                         s if s.ends_with("grad") => T![DIM_GRAD],
                         s if s.ends_with("ms") => T![DIM_MS],
-                        s if s.ends_with("s") => T![DIM_S],
+                        s if s.ends_with('s') => T![DIM_S],
                         s if s.ends_with("hz") => T![DIM_HZ],
                         s if s.ends_with("khz") => T![DIM_KHZ],
                         s if s.ends_with("fr") => T![DIM_FR],

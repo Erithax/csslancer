@@ -3,37 +3,29 @@ mod css_grammar_test {
     use super::super::{
         parser::Parser,
         syntax_kind_gen::SyntaxKind,
-        Parse,
-        CssLanguage,
+        nodes_types::CssLanguage,
         parse_error::ParseError::{self, *},
     };
-    use csslancer_macro::{assert_parse_error, assert_parse_node};
     use rowan::{SyntaxNode, GreenNode};
-    use std::marker::PhantomData;
 
-    fn assert_node<F: Fn(&mut Parser) -> Option<Result<(), ()>>>(text: &str, f: F) -> GreenNode {
+    fn assert_node<F: Fn(&mut Parser) -> Option<()>>(text: &str, f: F) -> GreenNode {
         println!("text: {text}");
         let (success, (green, errors)) = super::super::must_parse_text_as_fn(text, f);
-        let root = SyntaxNode::<CssLanguage>::new_root(green.clone());
-
         assert!(success, "did not parse expected node from fn from text `{text}`");
         assert!(errors.len() == 0, "unexpected errors while parsing `{text}`: {errors:?}");
         
         green
     }
 
-    fn assert_no_node<F: Fn(&mut Parser) -> Option<Result<(), ()>>>(text: &str, f: F) {
+    fn assert_no_node<F: Fn(&mut Parser) -> Option<()>>(text: &str, f: F) {
         println!("text: {text}");
-        let input_text_len = text.len();
         let (success, (green, errors)) = super::super::must_parse_text_as_fn(text, f);
-        let root = SyntaxNode::<CssLanguage>::new_root(green.clone());
-
         assert!(!success || <rowan::TextSize as Into<usize>>::into(green.text_len()) != text.len(), "did not expected succesfully parsed node from text `{text}`. 
             \n instead found tree spanning whole text with errors `{errors:?}`.
         ");    
     }
 
-    fn assert_error<F: Fn(&mut Parser) -> Option<Result<(), ()>>>(text: &str, f: F, expected_error: ParseError) -> GreenNode {
+    fn assert_error<F: Fn(&mut Parser) -> Option<()>>(text: &str, f: F, expected_error: ParseError) -> GreenNode {
         println!("text: {text}");
         let (success, (green, errors)) = super::super::must_parse_text_as_fn(text, f);
         SyntaxNode::<CssLanguage>::new_root(green.clone());
@@ -47,7 +39,7 @@ mod css_grammar_test {
 
     #[test]
     fn stylesheet() {
-        let f = |p: &mut Parser| Some(Ok(p.parse_source_file()));
+        let f = |p: &mut Parser| Some(p.parse_source_file());
         assert_node("@charset \"demo\" ;", f);
         assert_node("body { margin: 0px; padding: 3em, 6em; }", f);
         assert_node("--> <!--", f);
@@ -97,7 +89,7 @@ mod css_grammar_test {
 
     #[test]
     fn stylesheet_graceful_unknown_rules() {
-        let f = |p: &mut Parser| Some(Ok(p.parse_source_file()));
+        let f = |p: &mut Parser| Some(p.parse_source_file());
         assert_node("@unknown-rule;", f);
         assert_node("@unknown-rule 'foo';", f);
         assert_node("@unknown-rule (foo) {}", f);
@@ -131,7 +123,7 @@ mod css_grammar_test {
     #[test]
     fn stylesheet_unknown_rules_node_proper_end() {
         // Microsoft/vscode#53159
-        let tree = assert_node("@unknown-rule (foo) {} .foo {}", |p: &mut Parser| Some(Ok(p.parse_source_file())));
+        let tree = assert_node("@unknown-rule (foo) {} .foo {}", |p: &mut Parser| Some(p.parse_source_file()));
 
         assert_eq!(SyntaxKind::SOURCE_FILE as u16, tree.kind().0);
 
@@ -140,13 +132,13 @@ mod css_grammar_test {
         // microsoft/vscode-css-languageservice#237
         assert_node(
             ".foo { @apply p-4 bg-neutral-50; min-height: var(--space-14); }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
     }
 
     #[test]
     fn stylesheet_error() {
-        let f = |p: &mut Parser| Some(Ok(p.parse_source_file()));
+        let f = |p: &mut Parser| Some(p.parse_source_file());
         assert_error(
             "#boo, far } \n.far boo {}",
             f,
@@ -262,24 +254,24 @@ mod css_grammar_test {
     fn at_property() {
         assert_node(
             "@property --my-color { syntax: '<color>'; inherits: false; initial-value: #c0ffee; }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
-        assert_error("@property  {  }", |p: &mut Parser| Some(Ok(p.parse_source_file())), IdentifierExpected);
+        assert_error("@property  {  }", |p: &mut Parser| Some(p.parse_source_file()), IdentifierExpected);
     }
 
     #[test]
     fn at_container() {
         assert_node(
             "@container (width <= 150px) { #inner { background-color: skyblue; }}",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
         assert_node(
             "@container card (inline-size > 30em) and style(--responsive: true) { }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
         assert_node(
             "@container card (inline-size > 30em) { @container style(--responsive: true) {} }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
     }
 
@@ -287,14 +279,14 @@ mod css_grammar_test {
     fn at_container_query_len_units() {
         assert_node(
             "@container (min-width: 700px) { .card h2 { font-size: max(1.5em, 1.23em + 2cqi); } }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
     }
 
     #[test]
     fn at_import() {
         let f = |p: &mut Parser| p.parse_import_opt();
-        let src_f = |p: &mut Parser| Some(Ok(p.parse_source_file()));
+        let src_f = |p: &mut Parser| Some(p.parse_source_file());
 
         assert_node(r#"@import "asdasdsa""#, f);
         assert_node(r#"@ImPort "asdsadsa""#, f);
@@ -456,14 +448,14 @@ mod css_grammar_test {
         assert_node("not all and (monochrome)", f);
     }
 
-    #[test]
-    fn medium() {
-        let f = |p: &mut Parser| p.parse_medium_opt();
+    // #[test]
+    // fn medium() {
+    //     let f = |p: &mut Parser| p.parse_medium_opt();
 
-        assert_node("somename", f);
-        assert_node("-asdas", f);
-        assert_node("-asda34s", f);
-    }
+    //     assert_node("somename", f);
+    //     assert_node("-asdas", f);
+    //     assert_node("-asda34s", f);
+    // }
 
     #[test]
     fn at_page() {
@@ -520,7 +512,7 @@ mod css_grammar_test {
 
         assert_node(
             "@media (min-width: 30em) { @layer layout { } }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
 
         assert_error("@layer theme layout {  }", f, SemiColonExpected);
@@ -539,7 +531,7 @@ mod css_grammar_test {
 
     #[test]
     fn operator() {
-        let f = |p: &mut Parser| p.parse_operator_opt().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_operator_opt();
         assert_node("/", f);
         assert_node("*", f);
         assert_node("+", f);
@@ -548,17 +540,17 @@ mod css_grammar_test {
 
     #[test]
     fn combinator() {
-        let f = |p: &mut Parser| p.parse_combinator_opt().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_combinator_opt();
         assert_node("+", f);
         assert_node("+  ", f);
         assert_node(">  ", f);
         assert_node(">", f);
         assert_node(">>>", f);
         assert_node("/deep/", f);
-        assert_node(":host >>> .data-table { width: 100%; }", |p: &mut Parser| Some(Ok(p.parse_source_file())));
+        assert_node(":host >>> .data-table { width: 100%; }", |p: &mut Parser| Some(p.parse_source_file()));
         assert_error(
             ":host >> .data-table { width: 100%; }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file())),
+            |p: &mut Parser| Some(p.parse_source_file()),
             LeftCurlyExpected
         );
     }
@@ -744,7 +736,7 @@ mod css_grammar_test {
         assert_node("figure { > figcaption { background: hsl(0 0% 0% / 50%); > p {  font-size: .9rem; } } }", f);
         assert_node(
             "@layer base { html { & body { min-block-size: 100%; } } }",
-            |p: &mut Parser| Some(Ok(p.parse_source_file()))
+            |p: &mut Parser| Some(p.parse_source_file())
         );
     }
 
@@ -767,7 +759,7 @@ mod css_grammar_test {
 
     #[test]
     fn simple_selector() {
-        let f = |p: &mut Parser| p.parse_simple_selector().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_simple_selector();
 
         assert_node("name", f);
         assert_node("#id#anotherid", f);
@@ -777,7 +769,7 @@ mod css_grammar_test {
 
     #[test]
     fn element_name() {
-        let f = |p: &mut Parser| p.parse_element_name().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_element_name();
         assert_node("name", f);
         assert_node("*", f);
         assert_node("foo|h1", f);
@@ -879,7 +871,7 @@ mod css_grammar_test {
 
     #[test]
     fn term() {
-        let f = |p: &mut Parser| p.parse_term().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_term();
 
         assert_node("\"asdasd\"", f);
         assert_node("name", f);
@@ -906,7 +898,7 @@ mod css_grammar_test {
     fn no_term0() {
         assert_no_node(
             "%('repetitions: %S file: %S', 1 + 2, \"directory/file.less\")",
-            |p: &mut Parser| p.parse_term().map(|_| Ok(())),
+            |p: &mut Parser| p.parse_term(),
         ); // less syntax
     }
     #[test]
@@ -914,14 +906,14 @@ mod css_grammar_test {
     fn no_term1() {
         assert_no_node(
             "~\"ms:alwaysHasItsOwnSyntax.For.Stuff()\"",
-            |p: &mut Parser| p.parse_term().map(|_| Ok(())),
+            |p: &mut Parser| p.parse_term(),
         ); // less syntax
     }
     #[test]
     fn no_term2() {
-        assert_no_node("U+002?-01??", |p: &mut Parser| p.parse_term().map(|_| Ok(())));
-        assert_no_node("U+00?0;", |p: &mut Parser| p.parse_term().map(|_| Ok(())));
-        assert_no_node("U+0XFF;", |p: &mut Parser| p.parse_term().map(|_| Ok(())));
+        assert_no_node("U+002?-01??", |p: &mut Parser| p.parse_term());
+        assert_no_node("U+00?0;", |p: &mut Parser| p.parse_term());
+        assert_no_node("U+0XFF;", |p: &mut Parser| p.parse_term());
     }
 
     #[test]
@@ -958,7 +950,7 @@ mod css_grammar_test {
 
     #[test]
     fn test_token_prio() {
-        let f = |p: &mut Parser| p.parse_prio_opt().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_prio_opt();
 
         assert_node("!important", f);
         assert_node("!/*demo*/important", f);
@@ -968,7 +960,7 @@ mod css_grammar_test {
 
     #[test]
     fn hexcolor() {
-        let f = |p: &mut Parser| p.parse_hex_color_opt().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_hex_color_opt();
 
         assert_node("#FFF", f);
         assert_node("#FFFF", f);
@@ -978,7 +970,7 @@ mod css_grammar_test {
 
     #[test]
     fn test_class() {
-        let ele_f = |p: &mut Parser| p.parse_element_name().map(|_| Ok(()));
+        let ele_f = |p: &mut Parser| p.parse_element_name();
         let f = |p: &mut Parser| p.parse_class_opt();
         assert_node(".faa", f);
         assert_node("faa", ele_f);
@@ -988,12 +980,12 @@ mod css_grammar_test {
 
     #[test]
     fn prio() {
-        assert_node("!important", |p: &mut Parser| p.parse_prio_opt().map(|_| Ok(())));
+        assert_node("!important", |p: &mut Parser| p.parse_prio_opt());
     }
 
     #[test]
     fn expr() {
-        let f = |p: &mut Parser| p.parse_expr_opt(false).map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_expr_opt(false);
 
         assert_node("45,5px", f);
         assert_node(" 45 , 5px ", f);
@@ -1003,7 +995,7 @@ mod css_grammar_test {
 
     #[test]
     fn url() {        
-        let f = |p: &mut Parser| p.parse_uri_literal_opt().map(|_| Ok(()));
+        let f = |p: &mut Parser| p.parse_uri_literal_opt();
 
         assert_node("url(//yourdomain/yourpath.png)", f);
         assert_node("url('http://msft.com')", f);

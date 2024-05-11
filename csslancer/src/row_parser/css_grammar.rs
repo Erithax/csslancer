@@ -1,9 +1,11 @@
 
+#![allow(clippy::unit_arg)]
+#![allow(clippy::collapsible_if)]
+
 use super::parse_error::ParseError;
 use super::parser::{Parser, Marker};
 use super::syntax_kind_gen::SyntaxKind;
 use super::token_set::TokenSet;
-use super::Parse;
 use crate::T;
 
 pub enum ReferenceType {
@@ -21,36 +23,34 @@ pub enum ReferenceType {
 
 impl Parser<'_> {
 
-    pub fn ttry<T, F>(&mut self, func: F) -> Option<T>
-    where
-        F: Fn(&mut Self) -> Option<T>,
-    {
-        let saved = self.start();
-        match func(self) {
-            Some(n) => {
-                saved.complete(self, SyntaxKind::UNDEFINED);
-                return Some(n)
-            },
-            None => {
-                saved.rollback(self);
-                return None;
-            }
-        }
-    }
+    // pub fn ttry<T, F>(&mut self, func: F) -> Option<T>
+    // where
+    //     F: Fn(&mut Self) -> Option<T>,
+    // {
+    //     let saved = self.start();
+    //     match func(self) {
+    //         Some(n) => {
+    //             saved.complete(self, SyntaxKind::UNDEFINED);
+    //             Some(n)
+    //         },
+    //         None => {
+    //             saved.rollback(self);
+    //             None
+    //         }
+    //     }
+    // }
 
-    pub fn varnish(&mut self, m: Marker, s: SyntaxKind) -> Result<(), ()> {
+    pub fn varnish(&mut self, m: Marker, s: SyntaxKind) {
         m.complete(self, s);
-        Ok(())
     }
 
     pub fn finito(
         &mut self,
         m: Marker,
         error: ParseError,
-    ) -> Result<(), ()> {
+    ) {
         self.err_and_bump(error.issue().desc);
         m.complete(self, SyntaxKind::ERROR);
-        return Err(())
     }
 
     pub fn fintio_recover(
@@ -59,11 +59,10 @@ impl Parser<'_> {
         error: ParseError,
         resync_tokens: Option<&[SyntaxKind]>,
         resync_stop_tokens: Option<&[SyntaxKind]>,
-    ) -> Result<(), ()> {
+    ) {
         self.error(error.issue().desc);
-        let resynced = self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
+        self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
         m.complete(self, SyntaxKind::ERROR); // No rollback here! creates infinite loops on error (because nothing is consumed)
-        return Err(())
     }
 
     pub fn fintio_recover_nested_error(
@@ -77,12 +76,6 @@ impl Parser<'_> {
         let resynced = self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
         m.complete(self, SyntaxKind::ERROR);
         resynced
-    }
-
-    pub fn eat_req_semicolon(&mut self) {
-        if !self.at(SyntaxKind::EOF) && !self.eat(T![;]) {
-            self.error(ParseError::SemiColonExpected.issue().desc);
-        }
     }
 
     /// Returns if resync was succesful, or not (EOF reached)
@@ -117,7 +110,7 @@ impl Parser<'_> {
         loop {
             loop {
                 has_match = false;
-                if let Some((kind, ..)) = self.parse_stylesheet_statement_opt(false) {
+                if let Some(kind) = self.parse_stylesheet_statement_opt(false) {
                     has_match = true;
                     in_recovery = false;
                     if !self.at(SyntaxKind::EOF)
@@ -169,32 +162,32 @@ impl Parser<'_> {
         Some(())
     }
 
-    pub fn parse_stylesheet_statement_opt(&mut self, is_nested: bool) -> Option<(SyntaxKind, Result<(), ()>)> {
+    pub fn parse_stylesheet_statement_opt(&mut self, is_nested: bool) -> Option<SyntaxKind> {
         if self.current().is_at_keyword() {
             return self.parse_stylesheet_at_statement_opt(is_nested)
         }
-        self.parse_rule_set_opt(is_nested).map(|e| (SyntaxKind::RULE_SET, e))
+        self.parse_rule_set_opt(is_nested).map(|_| SyntaxKind::RULE_SET)
     }
 
-    pub fn parse_stylesheet_at_statement_opt(&mut self, is_nested: bool) -> Option<(SyntaxKind, Result<(), ()>)> {
-        return self
-            .parse_import_opt().map(|e| (SyntaxKind::IMPORT, e))
-            .or_else(|| self.parse_media_opt(is_nested).map(|e| (SyntaxKind::MEDIA, e)))
-            .or_else(|| self.parse_page().map(|e| (SyntaxKind::PAGE, e)))
-            .or_else(|| self.parse_font_face_opt().map(|e| (SyntaxKind::FONT_FACE, e)))
-            .or_else(|| self.parse_keyframe_opt().map(|e| (SyntaxKind::KEYFRAME, e)))
-            .or_else(|| self.parse_supports_opt(is_nested).map(|e| (SyntaxKind::SUPPORTS, e)))
-            .or_else(|| self.parse_layer_opt(is_nested).map(|e| (SyntaxKind::LAYER, e)))
-            .or_else(|| self.parse_property_at_rule_opt().map(|e| (SyntaxKind::PROPERTY_AT_RULE, e)))
-            .or_else(|| self.parse_viewport_opt().map(|e| (SyntaxKind::VIEW_PORT, e)))
-            .or_else(|| self.parse_namespace_opt().map(|e| (SyntaxKind::NAMESPACE, e)))
-            .or_else(|| self.parse_document_opt().map(|e| (SyntaxKind::DOCUMENT, e)))
-            .or_else(|| self.parse_container().map(|e| (SyntaxKind::CONTAINER, e)))
-            .or_else(|| self.parse_unknown_at_rule().map(|e| (SyntaxKind::UNKNOWN_AT_RULE, e)))
+    pub fn parse_stylesheet_at_statement_opt(&mut self, is_nested: bool) -> Option<SyntaxKind> {
+        self
+            .parse_import_opt().map(|_| SyntaxKind::IMPORT)
+            .or_else(|| self.parse_media_opt(is_nested).map(|_| SyntaxKind::MEDIA))
+            .or_else(|| self.parse_page().map(|_| SyntaxKind::PAGE))
+            .or_else(|| self.parse_font_face_opt().map(|_| SyntaxKind::FONT_FACE))
+            .or_else(|| self.parse_keyframe_opt().map(|_| SyntaxKind::KEYFRAME))
+            .or_else(|| self.parse_supports_opt(is_nested).map(|_| SyntaxKind::SUPPORTS))
+            .or_else(|| self.parse_layer_opt(is_nested).map(|_| SyntaxKind::LAYER))
+            .or_else(|| self.parse_property_at_rule_opt().map(|_| SyntaxKind::PROPERTY_AT_RULE))
+            .or_else(|| self.parse_viewport_opt().map(|_| SyntaxKind::VIEW_PORT))
+            .or_else(|| self.parse_namespace_opt().map(|_| SyntaxKind::NAMESPACE))
+            .or_else(|| self.parse_document_opt().map(|_| SyntaxKind::DOCUMENT))
+            .or_else(|| self.parse_container().map(|_| SyntaxKind::CONTAINER))
+            .or_else(|| self.parse_unknown_at_rule().map(|_| SyntaxKind::UNKNOWN_AT_RULE))
     }
 
 
-    pub fn try_parse_rule_set_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn try_parse_rule_set_opt(&mut self, is_nested: bool) -> Option<()> {
         let m = self.start();
         if self.parse_selector_opt(is_nested).is_none() {
             m.rollback(self);
@@ -211,7 +204,7 @@ impl Parser<'_> {
         self.parse_rule_set_opt(is_nested)
     }
 
-    pub fn parse_rule_set_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn parse_rule_set_opt(&mut self, is_nested: bool) -> Option<()> {
         let m = self.start();
         if self.parse_selector_opt(is_nested).is_none() {
             m.rollback(self);
@@ -220,7 +213,8 @@ impl Parser<'_> {
 
         while self.eat(T![,]) {
             if self.parse_selector_opt(is_nested).is_none() {
-                return Some(self.finito(m, ParseError::SelectorExpected))
+                self.finito(m, ParseError::SelectorExpected);
+                return Some(())
             }
         }
 
@@ -228,25 +222,25 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::RULE_SET))
     }
 
-    pub fn parse_rule_set_declaration_at_statement_opt(&mut self) -> Option<(SyntaxKind, Result<(), ()>)> {
-        return self
-            .parse_media_opt(true).map(|e| (SyntaxKind::MEDIA, e))
-            .or_else(|| self.parse_supports_opt(true).map(|e| (SyntaxKind::SUPPORTS, e)))
-            .or_else(|| self.parse_layer_opt(true).map(|e| (SyntaxKind::LAYER, e)))
-            .or_else(|| self.parse_unknown_at_rule().map(|e| (SyntaxKind::UNKNOWN_AT_RULE, e)))
+    pub fn parse_rule_set_declaration_at_statement_opt(&mut self) -> Option<SyntaxKind> {
+        self
+            .parse_media_opt(true).map(|_| SyntaxKind::MEDIA)
+            .or_else(|| self.parse_supports_opt(true).map(|_| SyntaxKind::SUPPORTS))
+            .or_else(|| self.parse_layer_opt(true).map(|_| SyntaxKind::LAYER))
+            .or_else(|| self.parse_unknown_at_rule().map(|_| SyntaxKind::UNKNOWN_AT_RULE))
     }
 
-    pub fn parse_rule_set_declaration_opt(&mut self) -> Option<(SyntaxKind, Result<(), ()>)> {
+    pub fn parse_rule_set_declaration_opt(&mut self) -> Option<SyntaxKind> {
         // https://www.w3.org/TR/css-syntax-3/#consume-a-list-of-declarations
         if self.current().is_at_keyword() {
             return self.parse_rule_set_declaration_at_statement_opt();
         }
         if !self.at(T![identifier]) {
-            return self.parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
+            return self.parse_rule_set_opt(true).map(|_| SyntaxKind::RULE_SET)
         }
-        return self
-            .try_parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-            .or_else(|| self.parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)));
+        self
+            .try_parse_rule_set_opt(true).map(|_| SyntaxKind::RULE_SET)
+            .or_else(|| self.parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION))
     }
 
     pub fn needs_semicolon_after(sk: SyntaxKind) -> bool {
@@ -291,9 +285,9 @@ impl Parser<'_> {
     }
 
     /// `parse_declaration_func` must return Option<NodeId> of node of type `_AbstractDeclaration`
-    pub fn parse_declarations<F>(&mut self, mut parse_declaration_func: F) -> Option<Result<(), ()>>
+    pub fn parse_declarations<F>(&mut self, mut parse_declaration_func: F) -> Option<()>
     where
-        F: FnMut(&mut Self) -> Option<(SyntaxKind, Result<(), ()>)>,
+        F: FnMut(&mut Self) -> Option<SyntaxKind>,
     {
         let m = self.start();
         if !self.eat(SyntaxKind::L_CURLY) {
@@ -301,7 +295,7 @@ impl Parser<'_> {
             return None
         }
 
-        while let Some((mut kind, ..)) = parse_declaration_func(self) {
+        while let Some(mut kind) = parse_declaration_func(self) {
             if self.at(SyntaxKind::R_CURLY) {
                 break;
             }
@@ -324,14 +318,14 @@ impl Parser<'_> {
             return Some(self.fintio_recover(m, ParseError::RightCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None))
         }
         m.complete(self, SyntaxKind::DECLARATIONS);
-        Some(Ok(()))
+        Some(())
     }
 
     // node.node_type.is_body_declaration() == true
     /// `parse_declaration_func` must return Option<NodeId> which has node type `_AbstractDeclaration`
-    pub fn parse_body<F>(&mut self, parse_declaration_func: F) -> Result<(), ()>
+    pub fn parse_body<F>(&mut self, parse_declaration_func: F)
     where
-        F: FnMut(&mut Self) -> Option<(SyntaxKind, Result<(), ()>)>
+        F: FnMut(&mut Self) -> Option<SyntaxKind>
     {
         let m = self.start();
 
@@ -341,10 +335,9 @@ impl Parser<'_> {
         
         //m.complete(self, SyntaxKind::UNDEFINED);
         m.abandon(self); // attack child DECLARATIONS to parent as is. Incremental reparsing relies on this.
-        Ok(())
     }
 
-    pub fn parse_selector_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn parse_selector_opt(&mut self, is_nested: bool) -> Option<()> {
         let m = self.start();
 
         let mut has_content = false;
@@ -361,10 +354,10 @@ impl Parser<'_> {
             return None
         }
         m.complete(self, SyntaxKind::SELECTOR);
-        return Some(Ok(()))
+        Some(())
     }
 
-    pub fn parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<Result<(), ()>> {
+    pub fn parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<()> {
         let m = self.start();
         if self.try_parse_custom_property_declaration_opt(stop_tokens).is_some() {
             return Some(self.varnish(m, SyntaxKind::DECLARATION))
@@ -403,9 +396,9 @@ impl Parser<'_> {
     pub fn try_parse_custom_property_declaration_opt(
         &mut self,
         stop_tokens: Option<&[SyntaxKind]>,
-    ) -> Option<Result<(), ()>> {
+    ) -> Option<()> {
         assert!(stop_tokens.is_none() || stop_tokens.is_some_and(|s| s.iter().all(|t| t.is_punct())));
-        if !self.at_contextual_kw(T![cxid_valid_custom_prop]) {
+        if !self.at_contextual_token(T![cxid_valid_custom_prop]) {
             return None
         }
         // if !self.peek_regex(T![identifier], Regex::new("^--").unwrap()) {
@@ -427,17 +420,17 @@ impl Parser<'_> {
         // try to parse it as nested declaration
         if self.at(SyntaxKind::L_CURLY) {
             let prop_set = self.start();
-            if self.parse_declarations(|s: &mut Self| s.parse_rule_set_declaration_opt()).is_some() {
-
-                if !self.did_err_since_last_unfinished() {
-                    self.parse_prio_opt();
-                    if self.at(T![;]) {
-                        prop_set.complete(self, SyntaxKind::CUSTOM_PROPERTY_SET);
-                        //assert!(self.eat(T![;])); // not part of the declaration, but useful information for code assist
-                        
-                        m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
-                        return Some(Ok(()))
-                    }
+            if 
+                self.parse_declarations(|s: &mut Self| s.parse_rule_set_declaration_opt()).is_some() &&
+                !self.did_err_since_last_unfinished() 
+            {
+                self.parse_prio_opt();
+                if self.at(T![;]) {
+                    prop_set.complete(self, SyntaxKind::CUSTOM_PROPERTY_SET);
+                    //assert!(self.eat(T![;])); // not part of the declaration, but useful information for code assist
+                    
+                    m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
+                    return Some(())
                 }
             }
             prop_set.rollback(self);
@@ -446,7 +439,6 @@ impl Parser<'_> {
         // try to parse as expression
         let expr = self.start();
         if self.parse_expr_opt(false).is_some() {
-            println!("parsed as expr");
             if !self.did_err_since_last_unfinished() {
                 self.parse_prio_opt();
                 let mut toks = vec![T![;], SyntaxKind::EOF];
@@ -455,22 +447,22 @@ impl Parser<'_> {
                     //assert!(self.eat(T![;]));
                     expr.abandon(self);
                     m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
-                    return Some(Ok(()))
+                    return Some(())
                 }
             }
         }
         expr.rollback(self);
 
         let prev_pos = self.pos();
-        let cust_prop_val =
-            self.parse_custom_property_value(stop_tokens.unwrap_or(&[SyntaxKind::R_CURLY]));
+        
+        self.parse_custom_property_value(stop_tokens.unwrap_or(&[SyntaxKind::R_CURLY]));
 
         if !has_whitespace_after_colon && prev_pos == self.pos() {
             return Some(self.finito(m, ParseError::PropertyValueExpected))
         }
 
         m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
-        return Some(Ok(()))
+        Some(())
     }
 
     /**
@@ -484,7 +476,7 @@ impl Parser<'_> {
      * terminators like semicolons and !important directives (when not inside
      * of delimitors).
      */
-    pub fn parse_custom_property_value(&mut self, stop_tokens: &[SyntaxKind]) -> Result<(), ()> {
+    pub fn parse_custom_property_value(&mut self, stop_tokens: &[SyntaxKind]) {
         let m = self.start();
         let mut curly_dep: i32 = 0;
         let mut paren_dep: i32 = 0;
@@ -561,7 +553,7 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn try_parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<Result<(), ()>> {
+    pub fn try_parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<()> {
         let m = self.start();
         if self.parse_property_opt().is_some() && self.eat(T![:]) {
             // looks like a declaration, rollback and go ahead with real parse
@@ -572,7 +564,7 @@ impl Parser<'_> {
         None
     }
 
-    pub fn parse_property_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_property_opt(&mut self) -> Option<()> {
         let m = self.start();
         if self.eat(T![*]) || self.eat(T![_]) {
             // support for IE 5.x. 6, and 7 hack: see http://en.wikipedia.org/wiki/CSS_filter#Star_hack
@@ -586,15 +578,15 @@ impl Parser<'_> {
             return None
         }
         m.complete(self, SyntaxKind::PROPERTY);
-        return Some(Ok(()))
+        Some(())
     }
 
     #[inline]
     pub fn parse_property_identifier_opt(&mut self) -> Option<()> {
-        return self.parse_ident_opt(None);
+        self.parse_ident_opt(None)
     }
 
-    pub fn parse_import_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_import_opt(&mut self) -> Option<()> {
         // @import [ <url> | <string> ]
         //     [ layer | layer(<layer-name>) ]?
         //     <import-condition> ;
@@ -625,10 +617,10 @@ impl Parser<'_> {
         Some(self.complete_parse_import(m))
     }
 
-    pub fn complete_parse_import(&mut self, m: Marker) -> Result<(), ()> {
+    pub fn complete_parse_import(&mut self, m: Marker) {
         // consume both `layer` and `layer(`
         let at_func = self.at(T![function]);
-        if self.eat_contextual_kw(T![cxfunc_layer]) && at_func {
+        if self.eat_contextual_token(T![cxfunc_layer]) && at_func {
             if self.parse_layer_name().is_none() {
                 return self.fintio_recover(
                     m,
@@ -646,7 +638,7 @@ impl Parser<'_> {
                 );
             }
         }
-        if self.eat_contextual_kw(T![cxfunc_supports]) {
+        if self.eat_contextual_token(T![cxfunc_supports]) {
             self
                 .try_parse_declaration_opt(None)
                 .or_else(|| Some(self.parse_supports_condition()));
@@ -669,7 +661,7 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::IMPORT)
     }
 
-    pub fn parse_namespace_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_namespace_opt(&mut self) -> Option<()> {
         // http://www.w3.org/TR/css3-namespace/
         // namespace  : NAMESPACE_SYM S* [IDENT S*]? [STRING|URI] S* ';' S*
         if !self.at(T![@namespace]) {
@@ -698,7 +690,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::NAMESPACE))
     }
 
-    pub fn parse_font_face_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_font_face_opt(&mut self) -> Option<()> {
         if !self.at(T![@font_face]) {
             return None
         }
@@ -708,7 +700,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::FONT_FACE))
     }
 
-    pub fn parse_viewport_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_viewport_opt(&mut self) -> Option<()> {
         if !matches!(self.current(), T![@_ms_viewport]| T![@_o_viewport] | T![@viewport]) {
             return None
         }
@@ -719,7 +711,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::VIEW_PORT))
     }
 
-    pub fn parse_keyframe_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_keyframe_opt(&mut self) -> Option<()> {
         if !matches!(self.current(), T![@keyframes] | T![@_o_keyframes] | T![@_moz_keyframes] | T![@_webkit_keyframes]) {
             return None
         }
@@ -731,15 +723,15 @@ impl Parser<'_> {
             return Some(self.finito(m, ParseError::IdentifierExpected))
         }
 
-        self.parse_body(|s: &mut Self| s.parse_keyframe_selector_opt().map(|e| (SyntaxKind::KEYFRAME_SELECTOR, e)));
+        self.parse_body(|s: &mut Self| s.parse_keyframe_selector_opt().map(|_| SyntaxKind::KEYFRAME_SELECTOR));
         Some(self.varnish(m, SyntaxKind::KEYFRAME))
     }
 
     pub fn parse_keyframe_ident(&mut self) -> Option<()> {
-        return self.parse_ident_opt(Some(&[ReferenceType::Keyframe]));
+        self.parse_ident_opt(Some(&[ReferenceType::Keyframe]))
     }
 
-    pub fn parse_keyframe_selector_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_keyframe_selector_opt(&mut self) -> Option<()> {
         let m = self.start();
 
         let mut has_content = false;
@@ -777,7 +769,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::KEYFRAME_SELECTOR))
     }
 
-    // pub fn parse_tryparse_keyframe_selector(&mut self) -> Option<Result<(), ()>> {
+    // pub fn parse_tryparse_keyframe_selector(&mut self) -> Option<()> {
     //     let node = self.orphan(CssNodeType::_BodyDeclaration(BodyDeclaration {
     //         declarations: None,
     //         body_decl_type: BodyDeclarationType::KeyframeSelector,
@@ -819,7 +811,7 @@ impl Parser<'_> {
     //     return self.parse_body(node, |s: &mut Self| s.parse_rule_set_declaration());
     // }
 
-    pub fn parse_property_at_rule_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_property_at_rule_opt(&mut self) -> Option<()> {
         // @property <custom-property-name> {
         // 	<declaration-list>
         //  }
@@ -829,18 +821,18 @@ impl Parser<'_> {
         let m = self.start();
         self.bump_any();
 
-        if !self.at_contextual_kw(T![cxid_valid_custom_prop]) {
+        if !self.at_contextual_token(T![cxid_valid_custom_prop]) {
             return Some(self.finito(m, ParseError::IdentifierExpected))
         }
 
         if self.parse_ident_opt(Some(&[ReferenceType::Property])).is_none() {
             return Some(self.finito(m, ParseError::IdentifierExpected))
         }
-        self.parse_body(|s: &mut Self| s.parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION_CUSTOM_PROPERTY, e)));
+        self.parse_body(|s: &mut Self| s.parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION_CUSTOM_PROPERTY));
         Some(self.varnish(m, SyntaxKind::PROPERTY_AT_RULE))
     }
 
-    pub fn parse_layer_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn parse_layer_opt(&mut self, is_nested: bool) -> Option<()> {
         // @layer layer-name {rules}
         // @layer layer-name;
         // @layer layer-name, layer-name, layer-name;
@@ -854,7 +846,7 @@ impl Parser<'_> {
 
         let names = self.parse_layer_namelist_opt();
         
-        if (names.is_none() || names.unwrap().0 == 1) && self.at(SyntaxKind::L_CURLY) {
+        if (names.is_none() || names.unwrap() == 1) && self.at(SyntaxKind::L_CURLY) {
             self.parse_body(|s: &mut Self| s.parse_layer_declaration(is_nested));
             return Some(self.varnish(m, SyntaxKind::LAYER))
         }
@@ -864,19 +856,19 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::LAYER))
     }
 
-    pub fn parse_layer_declaration(&mut self, is_nested: bool) -> Option<(SyntaxKind, Result<(), ()>)> {
+    pub fn parse_layer_declaration(&mut self, is_nested: bool) -> Option<SyntaxKind> {
         if is_nested {
             // if nested, the body can contain rulesets, but also declarations
             return self
-                .parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)))
+                .parse_rule_set_opt(true).map(|_| SyntaxKind::RULE_SET)
+                .or_else(|| self.try_parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION))
                 .or_else(|| self.parse_stylesheet_statement_opt(true)) 
         }
-        return self.parse_stylesheet_statement_opt(false)
+        self.parse_stylesheet_statement_opt(false)
     }
 
     /// returns Option<number of names parsed>
-    pub fn parse_layer_namelist_opt(&mut self) -> Option<(usize, Result<(), ()>)> {
+    pub fn parse_layer_namelist_opt(&mut self) -> Option<usize> {
         let m = self.start();
         let mut name_count = 0_usize;
         if self.parse_layer_name().is_none() {
@@ -887,15 +879,16 @@ impl Parser<'_> {
 
         while self.eat(T![,]) {
             if self.parse_layer_name().is_none() {
-                return Some((name_count, self.finito(m, ParseError::IdentifierExpected)));
+                self.finito(m, ParseError::IdentifierExpected);
+                return Some(name_count);
             }
             name_count += 1;
         }
         self.varnish(m, SyntaxKind::LAYER_NAME_LIST);
-        Some((name_count, Ok(())))
+        Some(name_count)
     }
 
-    pub fn parse_layer_name(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_layer_name(&mut self) -> Option<()> {
         // <layer-name> = <ident> [ '.' <ident> ]*
         let m = self.start();
         if self.parse_ident_opt(None).is_none() {
@@ -910,7 +903,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::LAYER_NAME))
     }
 
-    pub fn parse_supports_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn parse_supports_opt(&mut self, is_nested: bool) -> Option<()> {
         // SUPPORTS_SYM S* supports_condition '{' S* ruleset* '}' S*
         if !self.at(T![@supports]) {
             return None
@@ -922,18 +915,18 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::SUPPORTS))
     }
 
-    pub fn parse_supports_declaration(&mut self, is_nested: bool) -> Option<(SyntaxKind, Result<(), ()>)> {
+    pub fn parse_supports_declaration(&mut self, is_nested: bool) -> Option<SyntaxKind> {
         if is_nested {
             // if nested, the body can contain rulesets, but also declarations
             return self
-                .parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::DECLARATION, e)))
+                .parse_rule_set_opt(true).map(|_| SyntaxKind::RULE_SET)
+                .or_else(|| self.try_parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION))
                 .or_else(|| self.parse_stylesheet_statement_opt(true));
         }
-        return self.parse_stylesheet_statement_opt(false);
+        self.parse_stylesheet_statement_opt(false)
     }
 
-    pub fn parse_supports_condition(&mut self) -> Result<(), ()> {
+    pub fn parse_supports_condition(&mut self) {
         // supports_condition : supports_negation | supports_conjunction | supports_disjunction | supports_condition_in_parens ;
         // supports_condition_in_parens: ( '(' S* supports_condition S* ')' ) | supports_declaration_condition | general_enclosed ;
         // supports_negation: NOT S+ supports_condition_in_parens ;
@@ -943,29 +936,28 @@ impl Parser<'_> {
         // general_enclosed: ( FUNCTION | '(' ) ( any | unused )* ')' ;
         let m = self.start();
 
-        if self.eat_contextual_kw(T![cxid_not]) {
+        if self.eat_contextual_token(T![cxid_not]) {
             self.parse_supports_condition_in_parens();
         } else {
             self.parse_supports_condition_in_parens();
             // TODO: weird code in VSCode CSS lang service: 
             // why peek case insensitive and|or and then
             // only accept lowercase? check spec
-            if self.at_contextual_kw(T![cxid_and]) {
-                while self.eat_contextual_kw(T![cxid_and]) {
+            if self.at_contextual_token(T![cxid_and]) {
+                while self.eat_contextual_token(T![cxid_and]) {
                     self.parse_supports_condition_in_parens();
                 }
-            } else if self.at_contextual_kw(T![cxid_or]) {
-                while self.eat_contextual_kw(T![cxid_or]) {
+            } else if self.at_contextual_token(T![cxid_or]) {
+                while self.eat_contextual_token(T![cxid_or]) {
                     self.parse_supports_condition_in_parens();
                 }
             }
         }
         
         m.complete(self, SyntaxKind::SUPPORTS_CONDITION);
-        Ok(())
     }
 
-    pub fn parse_supports_condition_in_parens(&mut self) -> Result<(), ()> {
+    pub fn parse_supports_condition_in_parens(&mut self) {
         let m = self.start();
         if self.eat(SyntaxKind::L_PAREN) {
             
@@ -984,7 +976,7 @@ impl Parser<'_> {
             }
 
             m.complete(self, SyntaxKind::SUPPORTS_CONDITION);
-            return Ok(())
+            return
         } else if self.at(T![identifier]) {
             let mark = self.start();
             self.bump_any();
@@ -1005,26 +997,26 @@ impl Parser<'_> {
 
             }
         }
-        return self.fintio_recover(
+        self.fintio_recover(
             m,
             ParseError::LeftParenthesisExpected,
             Some(&[]),
             Some(&[SyntaxKind::L_PAREN]),
-        );
+        )
     }
 
-    pub fn parse_media_declaration(&mut self, is_nested: bool) -> Option<(SyntaxKind, Result<(), ()>)> {
+    pub fn parse_media_declaration(&mut self, is_nested: bool) -> Option<SyntaxKind> {
         if is_nested {
             // if nested, the body can contain rulesets, but also declarations
             return self
-                .try_parse_rule_set_opt(true).map(|e| (SyntaxKind::RULE_SET, e))
-                .or_else(|| self.try_parse_declaration_opt(None).map(|e| (SyntaxKind::RULE_SET, e)))
+                .try_parse_rule_set_opt(true).map(|_| SyntaxKind::RULE_SET)
+                .or_else(|| self.try_parse_declaration_opt(None).map(|_| SyntaxKind::RULE_SET))
                 .or_else(|| self.parse_stylesheet_statement_opt(true));
         }
         self.parse_stylesheet_statement_opt(false)
     }
 
-    pub fn parse_media_opt(&mut self, is_nested: bool) -> Option<Result<(), ()>> {
+    pub fn parse_media_opt(&mut self, is_nested: bool) -> Option<()> {
         // MEDIA_SYM S* media_query_list '{' S* ruleset* '}' S*
         // media_query_list : S* [media_query [ ',' S* media_query ]* ]?
         if !self.at(T![@media]) {
@@ -1032,14 +1024,15 @@ impl Parser<'_> {
         }
         let m = self.start();
         self.bump_any();
-        if self.parse_media_query_list().is_err() {
-            return Some(self.finito(m, ParseError::MediaQueryExpected))
-        }
+        self.parse_media_query_list();
+        // if self.parse_media_query_list().is_err() {
+        //     return Some(self.finito(m, ParseError::MediaQueryExpected))
+        // }
         self.parse_body(|s: &mut Self| s.parse_media_declaration(is_nested));
         Some(self.varnish(m, SyntaxKind::MEDIA))
     }
 
-    pub fn parse_media_query_list(&mut self) -> Result<(), ()> {
+    pub fn parse_media_query_list(&mut self) {
         let m = self.start();
         if self.parse_media_query_opt().is_none() {
             return self.finito(m, ParseError::MediaQueryExpected);
@@ -1052,20 +1045,20 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn parse_media_query_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_media_query_opt(&mut self) -> Option<()> {
         // <media-query> = <media-condition> | [ not | only ]? <media-type> [ and <media-condition-without-or> ]?
         let m = self.start();
         //let mark = self.mark();
-        self.eat_contextual_kw(T![cxid_not]);
+        self.eat_contextual_token(T![cxid_not]);
         if !self.at(SyntaxKind::L_PAREN) {
-            if self.eat_contextual_kw(T![cxid_only]) {
+            if self.eat_contextual_token(T![cxid_only]) {
                 // optional
             }
             if self.parse_ident_opt(None).is_none() {
                 m.rollback(self);
                 return None
             };
-            if self.eat_contextual_kw(T![cxid_and]) {
+            if self.eat_contextual_token(T![cxid_and]) {
                 self.parse_media_condition();
             }
         } else {
@@ -1075,7 +1068,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::MEDIA_QUERY))
     }
 
-    pub fn parse_ratio_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_ratio_opt(&mut self) -> Option<()> {
         let m = self.start();
         if self.parse_numeric().is_none() || !self.eat(T![/]) {
             m.rollback(self);
@@ -1087,7 +1080,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::RATIO_VALUE))
     }
 
-    pub fn parse_media_condition(&mut self) -> Result<(), ()> {
+    pub fn parse_media_condition(&mut self) {
         // <media-condition> = <media-not> | <media-and> | <media-or> | <media-in-parens>
         // <media-not> = not <media-in-parens>
         // <media-and> = <media-in-parens> [ and <media-in-parens> ]+
@@ -1095,7 +1088,7 @@ impl Parser<'_> {
         // <media-in-parens> = ( <media-condition> ) | <media-feature> | <general-enclosed>
 
         let m = self.start();
-        self.eat_contextual_kw(T![cxid_not]);
+        self.eat_contextual_token(T![cxid_not]);
         let mut parse_expression = true;
 
         while parse_expression {
@@ -1107,7 +1100,7 @@ impl Parser<'_> {
                     Some(&[SyntaxKind::L_CURLY]),
                 );
             }
-            if self.at(SyntaxKind::L_PAREN) || self.at_contextual_kw(T![cxid_not]) {
+            if self.at(SyntaxKind::L_PAREN) || self.at_contextual_token(T![cxid_not]) {
                 // <media-condition>
                 self.parse_media_condition();
             } else {
@@ -1117,12 +1110,12 @@ impl Parser<'_> {
             if !self.eat(SyntaxKind::R_PAREN) {
                 return self.finito(m, ParseError::RightParenthesisExpected);
             }
-            parse_expression = self.at_contextual_kw(T![cxid_and]) || self.at_contextual_kw(T![cxid_or]);
+            parse_expression = self.at_contextual_token(T![cxid_and]) || self.at_contextual_token(T![cxid_or]);
         }
         self.varnish(m,SyntaxKind::MEDIA_CONDITION)
     }
 
-    pub fn parse_media_feature(&mut self) -> Result<(), ()> {
+    pub fn parse_media_feature(&mut self) {
         let resync_stop_token: Option<&[SyntaxKind]> = Some(&[SyntaxKind::R_PAREN]);
 
         let m = self.start();
@@ -1150,15 +1143,13 @@ impl Parser<'_> {
                         resync_stop_token,
                     );
                 }
-                if self.parse_media_feature_range_operator() {
-                    if self.parse_media_feature_value_opt().is_none() {
-                        return self.fintio_recover(
-                            m,
-                            ParseError::TermExpected,
-                            None,
-                            resync_stop_token,
-                        );
-                    }
+                if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
+                    return self.fintio_recover(
+                        m,
+                        ParseError::TermExpected,
+                        None,
+                        resync_stop_token,
+                    );
                 }
             } else {
                 // <mf-boolean> = <mf-name>
@@ -1181,15 +1172,13 @@ impl Parser<'_> {
                 );
             }
 
-            if self.parse_media_feature_range_operator() {
-                if self.parse_media_feature_value_opt().is_none() {
-                    return self.fintio_recover(
-                        m,
-                        ParseError::TermExpected,
-                        None,
-                        resync_stop_token,
-                    );
-                }
+            if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
+                return self.fintio_recover(
+                    m,
+                    ParseError::TermExpected,
+                    None,
+                    resync_stop_token,
+                );
             }
         } else {
             return self.fintio_recover(
@@ -1211,33 +1200,33 @@ impl Parser<'_> {
         } else if self.eat(T![=]) {
             return true;
         }
-        return false;
+        false
     }
 
     pub fn parse_media_feature_name(&mut self) -> Option<()> {
-        return self.parse_ident_opt(None);
+        self.parse_ident_opt(None)
     }
 
     pub fn parse_media_feature_value_opt(&mut self) -> Option<()> {
-        return self.parse_ratio_opt().map(|o| ()).or_else(|| self.parse_term_expression_opt());
+        self.parse_ratio_opt().map(|_| ()).or_else(|| self.parse_term_expression_opt())
     }
 
-    pub fn parse_medium_opt(&mut self) -> Option<Result<(), ()>> {
-        let m = self.start();
-        if self.parse_ident_opt(None).is_none() {
-            m.rollback(self);
-            return None
-        }
-        Some(self.varnish(m, SyntaxKind::UNDEFINED))
+    // pub fn parse_medium_opt(&mut self) -> Option<()> {
+    //     let m = self.start();
+    //     if self.parse_ident_opt(None).is_none() {
+    //         m.rollback(self);
+    //         return None
+    //     }
+    //     Some(self.varnish(m, SyntaxKind::UNDEFINED))
+    // }
+
+    pub fn parse_page_declaration(&mut self) -> Option<SyntaxKind> {
+        self
+            .parse_page_margin_box().map(|_| SyntaxKind::PAGE_BOX_MARGIN_BOX)
+            .or_else(|| self.parse_rule_set_declaration_opt())
     }
 
-    pub fn parse_page_declaration(&mut self) -> Option<(SyntaxKind, Result<(), ()>)> {
-        return self
-            .parse_page_margin_box().map(|e| (SyntaxKind::PAGE_BOX_MARGIN_BOX, e))
-            .or_else(|| self.parse_rule_set_declaration_opt());
-    }
-
-    pub fn parse_page(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_page(&mut self) -> Option<()> {
         // http://www.w3.org/TR/css3-page/
         // page_rule : PAGE_SYM S* page_selector_list '{' S* page_body '}' S*
         // page_body :  /* Can be empty */ declaration? [ ';' S* page_body ]? | page_margin_box page_body
@@ -1257,7 +1246,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::PAGE))
     }
 
-    pub fn parse_page_margin_box(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_page_margin_box(&mut self) -> Option<()> {
         // page_margin_box :  margin_sym S* '{' S* declaration? [ ';' S* declaration? ]* '}' S*
         if !self.current().is_at_keyword() {
             return None
@@ -1274,7 +1263,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::PAGE_BOX_MARGIN_BOX))
     }
 
-    pub fn parse_page_selector_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_page_selector_opt(&mut self) -> Option<()> {
         // page_selector : pseudo_page+ | IDENT pseudo_page*
         // pseudo_page :  ':' [ "left" | "right" | "first" | "blank" ];
         if !self.at(T![identifier]) && !self.at(T![:]) {
@@ -1282,15 +1271,13 @@ impl Parser<'_> {
         }
         let m = self.start();
         self.parse_ident_opt(None); // optional ident
-        if self.eat(T![:]) {
-            if self.parse_ident_opt(None).is_none() {
-                return Some(self.finito(m, ParseError::IdentifierExpected));
-            }
+        if self.eat(T![:]) && self.parse_ident_opt(None).is_none() {
+            return Some(self.finito(m, ParseError::IdentifierExpected));
         }
         Some(self.varnish(m, SyntaxKind::UNDEFINED))
     }
 
-    pub fn parse_document_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_document_opt(&mut self) -> Option<()> {
         // -moz-document is experimental but has been pushed to css4
         if !self.at(T![@_moz_document]) {
             return None
@@ -1302,7 +1289,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::DOCUMENT))
     }
 
-    pub fn parse_container(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_container(&mut self) -> Option<()> {
         if !self.at(T![@container]) {
             return None
         }
@@ -1314,18 +1301,18 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::CONTAINER))
     }
 
-    pub fn parse_container_query(&mut self) -> Result<(), ()> {
+    pub fn parse_container_query(&mut self) {
         // <container-query>     = not <query-in-parens>
         //                         | <query-in-parens> [ [ and <query-in-parens> ]* | [ or <query-in-parens> ]* ]
         let m = self.start();
         self.parse_container_query_in_parens();
-        if !self.eat_contextual_kw(T![cxid_not]) {
-            if self.at_contextual_kw(T![cxid_and]) {
-                while self.eat_contextual_kw(T![cxid_and]) {
+        if !self.eat_contextual_token(T![cxid_not]) {
+            if self.at_contextual_token(T![cxid_and]) {
+                while self.eat_contextual_token(T![cxid_and]) {
                     self.parse_container_query_in_parens();
                 }
-            } else if self.at_contextual_kw(T![cxid_or]) {
-                while self.eat_contextual_kw(T![cxid_or]) {
+            } else if self.at_contextual_token(T![cxid_or]) {
+                while self.eat_contextual_token(T![cxid_or]) {
                     self.parse_container_query_in_parens();
                 }
             }
@@ -1333,14 +1320,14 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn parse_container_query_in_parens(&mut self) -> Result<(), ()> {
+    pub fn parse_container_query_in_parens(&mut self) {
         // <query-in-parens>     = ( <container-query> )
         // 					  | ( <size-feature> )
         // 					  | style( <style-query> )
         // 					  | <general-enclosed>
         let m = self.start();
         if self.eat(SyntaxKind::L_PAREN) {
-            if self.at_contextual_kw(T![cxid_not]) || self.at(SyntaxKind::L_PAREN) {
+            if self.at_contextual_token(T![cxid_not]) || self.at(SyntaxKind::L_PAREN) {
                 self.parse_container_query();
             } else { 
                 self.parse_media_feature();
@@ -1353,7 +1340,7 @@ impl Parser<'_> {
                     Some(&[SyntaxKind::L_CURLY]),
                 );
             }
-        } else if self.eat_contextual_kw(T![cxfunc_style]) {
+        } else if self.eat_contextual_token(T![cxfunc_style]) {
             // if self.has_whitespace() || !self.eat(SyntaxKind::L_PAREN) {
             //     return self.fintio_recover(
             //         m,
@@ -1382,7 +1369,7 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn parse_style_query(&mut self) -> Result<(), ()> {
+    pub fn parse_style_query(&mut self) {
         // <style-query>         = not <style-in-parens>
         // 					  | <style-in-parens> [ [ and <style-in-parens> ]* | [ or <style-in-parens> ]* ]
         // 					  | <style-feature>
@@ -1390,16 +1377,16 @@ impl Parser<'_> {
         // 					  | ( <style-feature> )
         // 					  | <general-enclosed>
         let m = self.start();
-        if self.eat_contextual_kw(T![cxid_not]) {
+        if self.eat_contextual_token(T![cxid_not]) {
             self.parse_style_in_parens();
         } else if self.at(SyntaxKind::L_PAREN) {
             self.parse_style_in_parens();
-            if self.at_contextual_kw(T![cxid_and]) {
-                while self.eat_contextual_kw(T![cxid_and]) {
+            if self.at_contextual_token(T![cxid_and]) {
+                while self.eat_contextual_token(T![cxid_and]) {
                     self.parse_style_in_parens();
                 }
-            } else if self.at_contextual_kw(T![cxid_or]) {
-                while self.eat_contextual_kw(T![cxid_or]) {
+            } else if self.at_contextual_token(T![cxid_or]) {
+                while self.eat_contextual_token(T![cxid_or]) {
                     self.parse_style_in_parens();
                 }
             }
@@ -1409,7 +1396,7 @@ impl Parser<'_> {
         self.varnish(m, SyntaxKind::UNDEFINED)
     }
 
-    pub fn parse_style_in_parens(&mut self) -> Result<(), ()> {
+    pub fn parse_style_in_parens(&mut self) {
         let m = self.start();
         if self.eat(SyntaxKind::L_PAREN) {
             self.parse_style_query();
@@ -1433,7 +1420,7 @@ impl Parser<'_> {
     }
 
     // https://www.w3.org/TR/css-syntax-3/#consume-an-at-rule
-    pub fn parse_unknown_at_rule(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_unknown_at_rule(&mut self) -> Option<()> {
         if !self.current().is_at_keyword() {
             return None
         }
@@ -1555,12 +1542,11 @@ impl Parser<'_> {
 
         let mut make_sel_operator = |sk: SyntaxKind| (self.eat(sk)).then_some(());
 
-        if let Some(sk) = 
-            make_sel_operator(SyntaxKind::OPERATOR_DASHMATCH).or_else(||
+        if  make_sel_operator(SyntaxKind::OPERATOR_DASHMATCH).or_else(||
             make_sel_operator(SyntaxKind::OPERATOR_INCLUDES)).or_else(||
             make_sel_operator(SyntaxKind::OPERATOR_SUBSTRING)).or_else(||
             make_sel_operator(SyntaxKind::OPERATOR_PREFIX)).or_else(||
-            make_sel_operator(SyntaxKind::OPERATOR_SUFFIX))
+            make_sel_operator(SyntaxKind::OPERATOR_SUFFIX)).is_some()
         {
             self.varnish(m, SyntaxKind::OPERATOR);
             return Some(())
@@ -1577,7 +1563,7 @@ impl Parser<'_> {
         Some(())
     }
 
-    pub fn parse_unary_operator_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_unary_operator_opt(&mut self) -> Option<()> {
         const UNARY_OPERATORS: TokenSet = TokenSet::new(&[T![+], T![-]]);
         if !self.at_ts(UNARY_OPERATORS) {
             return None
@@ -1605,15 +1591,14 @@ impl Parser<'_> {
         } else if self.eat(T![~]) {
             self.varnish(m, SyntaxKind::SELECTOR_COMBINATOR_ALL_SIBLINGS);
             return Some(())
-        } else if self.eat(T![/]) {
-            if !self.has_whitespace()
-                && self.eat_contextual_kw(T![cxid_deep])
-                && !self.has_whitespace()
-                && self.at(T![/])
-            {
-                self.varnish(m, SyntaxKind::SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT);
-                return Some(())
-            }
+        } else if self.eat(T![/])
+            && !self.has_whitespace()
+            && self.eat_contextual_token(T![cxid_deep])
+            && !self.has_whitespace()
+            && self.at(T![/])
+        {
+            self.varnish(m, SyntaxKind::SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT);
+            return Some(())
         }
         m.rollback(self);
         None
@@ -1653,19 +1638,19 @@ impl Parser<'_> {
         Some(())
     }
 
-    pub fn parse_simple_selector_body(&mut self) -> Option<Result<(), ()>> {
-        return self
+    pub fn parse_simple_selector_body(&mut self) -> Option<()> {
+        self
             .parse_pseudo_opt()
             .or_else(|| self.parse_selector_identifier_opt())
             .or_else(|| self.parse_class_opt())
-            .or_else(|| self.parse_attribute());
+            .or_else(|| self.parse_attribute())
     }
 
     pub fn parse_selector_ident(&mut self) -> Option<()> {
-        return self.parse_ident_opt(None);
+        self.parse_ident_opt(None)
     }
 
-    pub fn parse_selector_identifier_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_selector_identifier_opt(&mut self) -> Option<()> {
         // err on unrestricted hash or T![#] with no followup
         if !self.at(T![id_hash]) {
             return None
@@ -1675,7 +1660,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::SELECTOR_IDENTIFIER))
     }
 
-    pub fn parse_class_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_class_opt(&mut self) -> Option<()> {
         // `.IDENT`
         if !self.at(T![.]) {
             return None
@@ -1714,7 +1699,7 @@ impl Parser<'_> {
         Some(())
     }
 
-    pub fn parse_attribute(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_attribute(&mut self) -> Option<()> {
         // attrib : '[' S* IDENT S* [ [ '=' | INCLUDES | DASHMATCH ] S*   [ IDENT | STRING ] S* ]? ']'
         if !self.at(SyntaxKind::L_BRACK) {
             return None
@@ -1731,8 +1716,8 @@ impl Parser<'_> {
 
         if self.parse_operator_opt().is_some() {
             self.parse_binary_expr();
-            self.eat_contextual_kw(T![cxid_attrib_i]); // case insensitive matching e.g. `a[href$=".org" i] ``
-            self.eat_contextual_kw(T![cxid_attrib_s]); // case sensitive matching
+            self.eat_contextual_token(T![cxid_attrib_i]); // case insensitive matching e.g. `a[href$=".org" i] ``
+            self.eat_contextual_token(T![cxid_attrib_s]); // case sensitive matching
         }
 
         if !self.eat(SyntaxKind::R_BRACK) {
@@ -1744,7 +1729,7 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::SELECTOR_ATTRIBUTE))
     }
 
-    pub fn parse_pseudo_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_pseudo_opt(&mut self) -> Option<()> {
         // ':' [ IDENT | FUNCTION S* [IDENT S*]? ')' ]
         let m = self.start();
 
@@ -1772,9 +1757,11 @@ impl Parser<'_> {
                 Some(())
             };
 
-            if self.eat_contextual_kw(SyntaxKind::CXDIM_AN_PLUS_B) || self.eat_contextual_kw(SyntaxKind::CXID_AN_PLUS_B_SYNTAX_AN) {
-                self.eat(T![number]) || (self.eat(T![+]) && self.eat(T![number]));
-                if self.eat_contextual_kw(T![cxid_of]) && try_as_selector(self).is_none() {
+            if self.eat_contextual_token(SyntaxKind::CXDIM_AN_PLUS_B) || self.eat_contextual_token(SyntaxKind::CXID_AN_PLUS_B_SYNTAX_AN) {
+                if !self.eat(T![number]) && self.eat(T![+]) {
+                    self.eat(T![number]);
+                };
+                if self.eat_contextual_token(T![cxid_of]) && try_as_selector(self).is_none() {
                     return Some(self.finito(m, ParseError::SelectorExpected))
                 }
                 if !self.eat(SyntaxKind::R_PAREN) {
@@ -1785,10 +1772,10 @@ impl Parser<'_> {
 
             let has_selector = try_as_selector(self).is_some();
 
-            if !has_selector && self.parse_binary_expr().is_some() && self.eat_contextual_kw(T![cxid_of]) {
-                if try_as_selector(self).is_none() {
-                    return Some(self.finito(m, ParseError::SelectorExpected))
-                }
+            if !has_selector && self.parse_binary_expr().is_some() && 
+                self.eat_contextual_token(T![cxid_of]) && try_as_selector(self).is_none() 
+            {
+                return Some(self.finito(m, ParseError::SelectorExpected))
             }
 
             if !self.eat(SyntaxKind::R_PAREN) {
@@ -1834,7 +1821,7 @@ impl Parser<'_> {
 
     pub fn parse_prio_opt(&mut self) -> Option<()> {
         let m = self.start();
-        if !self.eat(T![!]) || !self.eat_contextual_kw(T![cxid_important]) {
+        if !self.eat(T![!]) || !self.eat_contextual_token(T![cxid_important]) {
             m.rollback(self);
             return None
         }
@@ -1871,7 +1858,7 @@ impl Parser<'_> {
         Some(())
     }
 
-    pub fn parse_named_line(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_named_line(&mut self) -> Option<()> {
         // https://www.w3.org/TR/css-grid-1/#named-lines
         if !self.at(SyntaxKind::L_BRACK) {
             return None
@@ -1890,14 +1877,14 @@ impl Parser<'_> {
         Some(self.varnish(m, SyntaxKind::GRID_LINE))
     }
 
-    pub fn parse_binary_expr(&mut self) -> Option<Result<(), ()>> {
-        return self.parse_binary_expr_internal(false);
+    pub fn parse_binary_expr(&mut self) -> Option<()> {
+        self.parse_binary_expr_internal(false)
     }
 
     fn parse_binary_expr_internal(
         &mut self,
         preparsed_left_and_oper: bool,
-    ) -> Option<Result<(), ()>> {
+    ) -> Option<()> {
         let m = self.start();
 
         if !preparsed_left_and_oper {
@@ -1941,19 +1928,19 @@ impl Parser<'_> {
     }
 
     pub fn parse_term_expression_opt(&mut self) -> Option<()> {
-        return self
-            .parse_uri_literal_opt().map(|e| ()) // url before function
+        self
+            .parse_uri_literal_opt().map(|_| ()) // url before function
             .or_else(|| self.parse_unicode_range())
-            .or_else(|| self.parse_function_with_args_opt().map(|e| ())) // function before ident
+            .or_else(|| self.parse_function_with_args_opt().map(|_| ())) // function before ident
             .or_else(|| self.parse_ident_opt(None))
             .or_else(|| self.parse_string_literal())
             .or_else(|| self.parse_numeric())
             .or_else(|| self.parse_hex_color_opt())
-            .or_else(|| self.parse_operation().map(|e| ()))
-            .or_else(|| self.parse_named_line().map(|e| ()));
+            .or_else(|| self.parse_operation().map(|_| ()))
+            .or_else(|| self.parse_named_line().map(|_| ()))
     }
 
-    pub fn parse_operation(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_operation(&mut self) -> Option<()> {
         if !self.at(SyntaxKind::L_PAREN) {
             return None
         }
@@ -1991,10 +1978,10 @@ impl Parser<'_> {
         // self.varnish(m, SyntaxKind::STRING_LITERAL);
     }
 
-    pub fn parse_uri_literal_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_uri_literal_opt(&mut self) -> Option<()> {
         let m = self.start();
         if !self.eat(T![url]) && !self.eat(T![bad_url]) {
-            if !self.at_contextual_kw(T![cxfunc_url]) || !matches!(self.nth(1), T![string] | T![bad_string]) {
+            if !self.at_contextual_token(T![cxfunc_url]) || !matches!(self.nth(1), T![string] | T![bad_string]) {
                 m.rollback(self);
                 return None
             }
@@ -2054,7 +2041,7 @@ impl Parser<'_> {
     //     Some(())
     // }
 
-    pub fn parse_ident_opt(&mut self, reference_types: Option<&[ReferenceType]>) -> Option<()> {
+    pub fn parse_ident_opt(&mut self, _reference_types: Option<&[ReferenceType]>) -> Option<()> {
         // TODO reference type
         if !self.eat(T![identifier]) {
             return None
@@ -2069,7 +2056,7 @@ impl Parser<'_> {
         // Some(())
     }
 
-    pub fn parse_function_with_args_opt(&mut self) -> Option<Result<(), ()>> {
+    pub fn parse_function_with_args_opt(&mut self) -> Option<()> {
 
         if !self.at(T![function]) {
             return None
@@ -2108,7 +2095,7 @@ impl Parser<'_> {
     }
 
     pub fn parse_hex_color_opt(&mut self) -> Option<()> {
-        if self.at_contextual_kw(T![cxhash_valid_hex]) {
+        if self.at_contextual_token(T![cxhash_valid_hex]) {
             let m = self.start();
             self.bump_any();
             self.varnish(m, SyntaxKind::HEX_COLOR_VALUE);

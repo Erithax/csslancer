@@ -396,7 +396,7 @@ impl Cursor<'_> {
                 return false;
             }
             hot = ch == '*';
-            return true;
+            true
         });
         debug_assert!(!success || self.first() == '/');
         if success {self.bump();} // consume trailing '/'
@@ -406,7 +406,7 @@ impl Cursor<'_> {
     /// https://drafts.csswg.org/css-syntax/#whitespace
     /// Consume as much whitespace as possible
     fn consume_whitespace(&mut self) -> TokenKind {
-        self.bump_while_first(|ch| is_white_space(ch));
+        self.bump_while_first(is_white_space);
         TokenKind::WhiteSpace
     }
 
@@ -501,7 +501,7 @@ impl Cursor<'_> {
                 _ => {}
             }
         }
-        return TokenKind::BadUrl
+        TokenKind::BadUrl
     }
 
     /// https://drafts.csswg.org/css-syntax/#consume-numeric-token
@@ -515,7 +515,7 @@ impl Cursor<'_> {
             self.bump();
             return TokenKind::Percentage
         }
-        return TokenKind::Number
+        TokenKind::Number
     }
 
     /// https://drafts.csswg.org/css-syntax/#consume-a-number
@@ -587,10 +587,7 @@ impl Cursor<'_> {
     fn consume_ident_like(&mut self) -> TokenKind {
         let starts_with_url = match self.first() {
             'u' | 'U' => match self.second() {
-                'r' | 'R' => match self.third() {
-                    'l' | 'L' => true,
-                    _ => false,
-                },
+                'r' | 'R' => matches!(self.third(), 'l' | 'L'),
                 _ => false,
             },
             _ => false,
@@ -603,17 +600,17 @@ impl Cursor<'_> {
             }
             let first = self.first();
             if first == '\'' || first == '"' || 
-                (is_white_space(first) && (match self.second() {'\'' | '"' => true, _ => false})) 
+                (is_white_space(first) && (matches!(self.second(), '\'' | '"')))
             {
-                return TokenKind::Function
+                TokenKind::Function
             } else {
-                return self.consume_url()
+                self.consume_url()
             }
         } else if self.first() == '(' {
             self.bump();
-            return TokenKind::Function
+            TokenKind::Function
         } else {
-            return TokenKind::Ident
+            TokenKind::Ident
         }
 
     }
@@ -671,7 +668,7 @@ impl Cursor<'_> {
                     count_hex_question += 1;
                     return count_hex_question <= 6
                 }
-                return false
+                false
             });
         }
         if self.first() == '-' && self.second().is_ascii_hexdigit() {
@@ -685,7 +682,7 @@ impl Cursor<'_> {
                 false
             });
         }
-        return TokenKind::UnicodeRange
+        TokenKind::UnicodeRange
     }
 
     #[inline]
@@ -702,10 +699,7 @@ impl Cursor<'_> {
         match self.first() {
             '+' | '-' => match self.second() {
                 c if c.is_ascii_digit() => true,
-                '.' => match self.third() {
-                    c if c.is_ascii_digit() => true,
-                    _ => false
-                },
+                '.' => matches!(self.third(), c if c.is_ascii_digit()),
                 _ => false
             },
             '.' => self.second().is_ascii_digit(),
@@ -807,5 +801,5 @@ fn hex_string_to_num(s: &str) -> Result<u32, ()> {
     for (e, c) in s.chars().rev().enumerate() {
         res += c.to_digit(16).ok_or(())? * 16_u32.pow(e.try_into().map_err(|_| ())?);
     }
-    return Ok(res)
+    Ok(res)
 }

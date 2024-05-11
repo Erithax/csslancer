@@ -2,6 +2,7 @@ use crate::css_language_types::{AtDirectiveData, CssDataV1, CssDataV1Source, Ent
 
 use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct CssDataManager {
     data_providers: Vec<Box<dyn ProvideCssData + Sync + Send>>,
 
@@ -27,10 +28,12 @@ impl CssDataManager {
             data_providers.append(&mut custom_data_providers);
         }
 
-        let mut res = Self::default();
-        res.data_providers = data_providers;
+        let mut res = Self {
+            data_providers,
+            ..Default::default()
+        };
         res.collect_data();
-        return res
+        res
     }
 
     fn collect_data(&mut self) {
@@ -64,16 +67,4 @@ impl CssDataManager {
         };
     }
     
-}
-
-impl Default for CssDataManager {
-    fn default() -> Self {
-        Self {
-            data_providers: Vec::new(), // TODO: consider adding default css data?
-            property_set: HashMap::new(),
-            at_directive_set: HashMap::new(),
-            pseudo_class_set: HashMap::new(),
-            pseudo_element_set: HashMap::new(),
-        }
-    }
 }

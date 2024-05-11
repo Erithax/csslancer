@@ -1,4 +1,3 @@
-#![allow(clippy::needless_return)]
 #![allow(clippy::new_without_default)]
 
 mod config;

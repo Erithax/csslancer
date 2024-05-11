@@ -73,9 +73,9 @@ pub(crate) enum Event {
     /// instead of an integer literal followed by a dot as the lexer has no contextual knowledge.
     /// This event instructs whatever consumes the events to split the float literal into
     /// the corresponding parts.
-    FloatSplitHack {
-        ends_in_dot: bool,
-    },
+    // FloatSplitHack {
+    //     ends_in_dot: bool,
+    // },
     Error {
         msg: String,
     },
@@ -126,11 +126,11 @@ pub(super) fn process(mut events: Vec<Event>) -> Output {
             Event::Token { kind, n_raw_tokens } => {
                 res.token(kind, n_raw_tokens);
             }
-            Event::FloatSplitHack { ends_in_dot } => {
-                res.float_split_hack(ends_in_dot);
-                let ev = mem::replace(&mut events[i + 1], Event::tombstone());
-                assert!(matches!(ev, Event::Finish), "{ev:?}");
-            }
+            // Event::FloatSplitHack { ends_in_dot } => {
+            //     res.float_split_hack(ends_in_dot);
+            //     let ev = mem::replace(&mut events[i + 1], Event::tombstone());
+            //     assert!(matches!(ev, Event::Finish), "{ev:?}");
+            // }
             Event::Error { msg } => res.error(msg),
         }
     }

@@ -84,12 +84,12 @@ impl Output {
         self.event.push(e)
     }
 
-    pub(crate) fn float_split_hack(&mut self, ends_in_dot: bool) {
-        let e = (Self::SPLIT_EVENT as u32) << Self::TAG_SHIFT
-            | ((ends_in_dot as u32) << Self::N_INPUT_TOKEN_SHIFT)
-            | Self::EVENT_MASK;
-        self.event.push(e);
-    }
+    // pub(crate) fn float_split_hack(&mut self, ends_in_dot: bool) {
+    //     let e = (Self::SPLIT_EVENT as u32) << Self::TAG_SHIFT
+    //         | ((ends_in_dot as u32) << Self::N_INPUT_TOKEN_SHIFT)
+    //         | Self::EVENT_MASK;
+    //     self.event.push(e);
+    // }
 
     pub(crate) fn enter_node(&mut self, kind: SyntaxKind) {
         let e = ((kind as u16 as u32) << Self::KIND_SHIFT)
