@@ -314,6 +314,7 @@ dependencies = [
  "drop_bomb",
  "ego-tree",
  "either",
+ "fastrand",
  "futures",
  "itertools",
  "log",
@@ -323,6 +324,7 @@ dependencies = [
  "quote",
  "ra_ap_limit",
  "ra_ap_text_edit",
+ "rand",
  "regex",
  "rowan",
  "serde",
@@ -388,6 +390,12 @@ name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+
+[[package]]
+name = "fastrand"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
 
 [[package]]
 name = "flate2"

@@ -263,6 +263,10 @@ impl Parser<'_> {
             | SyntaxKind::SCSS_FUNCTION_DECLARATION
             | SyntaxKind::SCSS_MIXIN_CONTENT_DECLARATION 
             | SyntaxKind::PROPERTY_AT_RULE
+            | SyntaxKind::CONTAINER
+            | SyntaxKind::FONT_FACE
+            | SyntaxKind::LAYER
+            | SyntaxKind::SUPPORTS
             // --
             | SyntaxKind::NAMESPACE => false,
             SyntaxKind::MEDIA_QUERY
@@ -555,7 +559,7 @@ impl Parser<'_> {
 
     pub fn try_parse_declaration_opt(&mut self, stop_tokens: Option<&[SyntaxKind]>) -> Option<()> {
         let m = self.start();
-        if self.parse_property_opt().is_some() && self.eat(T![:]) {
+        if self.parse_property_opt().is_some() && self.at(T![:]) {
             // looks like a declaration, rollback and go ahead with real parse
             m.rollback(self);
             return self.parse_declaration_opt(stop_tokens)
@@ -619,9 +623,9 @@ impl Parser<'_> {
 
     pub fn complete_parse_import(&mut self, m: Marker) {
         // consume both `layer` and `layer(`
-        let at_func = self.at(T![function]);
-        if self.eat_contextual_token(T![cxfunc_layer]) && at_func {
-            if self.parse_layer_name().is_none() {
+        if self.eat_contextual_token(T![cxfunc_layer]) {
+            // TODO: check vscode css langservice accepts empty `layer()`
+            if !self.at(SyntaxKind::R_PAREN) && self.parse_layer_name().is_none() {
                 return self.fintio_recover(
                     m,
                     ParseError::IdentifierExpected,
@@ -927,6 +931,7 @@ impl Parser<'_> {
     }
 
     pub fn parse_supports_condition(&mut self) {
+        // TODO: check MDN syntax cfr. CSS spec
         // supports_condition : supports_negation | supports_conjunction | supports_disjunction | supports_condition_in_parens ;
         // supports_condition_in_parens: ( '(' S* supports_condition S* ')' ) | supports_declaration_condition | general_enclosed ;
         // supports_negation: NOT S+ supports_condition_in_parens ;
@@ -936,6 +941,14 @@ impl Parser<'_> {
         // general_enclosed: ( FUNCTION | '(' ) ( any | unused )* ')' ;
         let m = self.start();
 
+        // self.eat_contextual_token(T![cxid_not]);
+        // self.parse_supports_condition_in_parens();
+
+        // while self.eat_contextual_token(T![cxid_and]) || self.eat_contextual_token(T![cxid_or]) {
+        //     self.parse_supports_condition_in_parens();
+        // }
+
+        
         if self.eat_contextual_token(T![cxid_not]) {
             self.parse_supports_condition_in_parens();
         } else {
@@ -958,9 +971,9 @@ impl Parser<'_> {
     }
 
     pub fn parse_supports_condition_in_parens(&mut self) {
+        // TODO: change function name and ending error
         let m = self.start();
         if self.eat(SyntaxKind::L_PAREN) {
-            
             if self.try_parse_declaration_opt(Some(&[SyntaxKind::R_PAREN])).is_none() {
                 self.parse_supports_condition(); 
                 // TODO: Unreachable in VSCode return self.finito(m, ParseError::ConditionExpected);
@@ -975,27 +988,19 @@ impl Parser<'_> {
                 );
             }
 
-            m.complete(self, SyntaxKind::SUPPORTS_CONDITION);
-            return
-        } else if self.at(T![identifier]) {
-            let mark = self.start();
-            self.bump_any();
-            if !self.has_whitespace() && self.eat(SyntaxKind::L_PAREN) {
-                let mut open_parent_count = 1;
-                while open_parent_count != 0 {
-                    match self.current() {
-                        SyntaxKind::EOF => break,
-                        SyntaxKind::L_PAREN => open_parent_count += 1,
-                        SyntaxKind::R_PAREN => open_parent_count -= 1,
-                        _ => {}
-                    }
-                    self.bump_any();
+            return self.varnish(m, SyntaxKind::SUPPORTS_CONDITION)
+        } else if self.eat(T![function]) {
+            let mut open_parent_count = 1;
+            while open_parent_count != 0 {
+                match self.current() {
+                    SyntaxKind::EOF => break,
+                    SyntaxKind::L_PAREN | T![function] => open_parent_count += 1,
+                    SyntaxKind::R_PAREN => open_parent_count -= 1,
+                    _ => {}
                 }
-                return self.varnish(mark, SyntaxKind::SUPPORTS_CONDITION)
-            } else {
-                mark.rollback(self);
-
+                self.bump_any();
             }
+            return self.varnish(m, SyntaxKind::SUPPORTS_CONDITION)
         }
         self.fintio_recover(
             m,
@@ -1110,7 +1115,7 @@ impl Parser<'_> {
             if !self.eat(SyntaxKind::R_PAREN) {
                 return self.finito(m, ParseError::RightParenthesisExpected);
             }
-            parse_expression = self.at_contextual_token(T![cxid_and]) || self.at_contextual_token(T![cxid_or]);
+            parse_expression = self.eat_contextual_token(T![cxid_and]) || self.eat_contextual_token(T![cxid_or]);
         }
         self.varnish(m,SyntaxKind::MEDIA_CONDITION)
     }

@@ -48,6 +48,11 @@ impl<'t> Parser<'t> {
         self.pos
     }
 
+    #[cfg(debug_assertions)]
+    pub(crate) fn log_tokens(&self) {
+        println!("{}", (0..10).map(|i| format!("{:?}, ", self.inp.kind(self.pos + i))).fold(String::new(), |acc, nex| acc + &nex));
+    }
+
     /// Returns the kind of the current token.
     /// If parser has already reached the end of input,
     /// the special `EOF` kind is returned.

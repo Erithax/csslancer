@@ -29,7 +29,6 @@ impl<'a> LexedStr<'a> {
 
         for token in tokenize_file(&text[conv.offset..]) {
             let token_text = &text[conv.offset..][..token.len as usize];
-
             conv.extend_token(&token.kind, token_text);
         }
 
@@ -150,8 +149,6 @@ impl<'a> Converter<'a> {
         // Storing that info in `SyntaxKind` is not possible due to its layout requirements of
         // being `u16` that come from `rowan::SyntaxKind`.
         let err = "";
-
-
 
         let syntax_kind = {
             match kind {

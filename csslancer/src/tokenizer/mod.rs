@@ -207,10 +207,12 @@ pub fn tokenize_file(input: &str) -> impl Iterator<Item = Token> + '_ {
     let mut cursor = Cursor::new(input);
     let charset = cursor.maybe_consume_charset();
     let first = if charset {
-        Token {
+        let t = Token {
             kind: TokenKind::Charset,
             len: cursor.pos_within_token(),
-        }
+        };
+        cursor.reset_pos_within_token();
+        t
     } else {
         cursor.consume_token()
     };
@@ -388,6 +390,7 @@ impl Cursor<'_> {
     /// PRECONDITION: consumed '/', next char is '*'
     /// Contrary to spec, we return a token, and do not check for another immediately succeeding comment
     fn consume_comment(&mut self) -> TokenKind {
+        debug_assert!(self.first() == '*');
         let mut success = false;
         let mut hot = false;
         self.bump_while_first(|ch| {
@@ -562,7 +565,9 @@ impl Cursor<'_> {
     /// https://drafts.csswg.org/css-syntax/#consume-name
     /// consumes the largest name that can be formed from adjacent code points in the stream, starting from the first
     /// Modified to delay bump to avoid reconsumption.
-    /// PRECONDITION: self.is_ident_seq_start() returns true
+    /// NB!: This algorithm does not do the verification of the first few code points that are necessary to ensure 
+    /// the returned code points would constitute an <ident-token>. (this algorithm is also used when this is not 
+    /// necessarily true, see parsing unrestricted hash token).
     fn consume_ident_seq(&mut self) {
         loop {
             let curr = self.first();
@@ -619,6 +624,7 @@ impl Cursor<'_> {
     /// PRECONDITION: '\\' has just been consumed
     /// PRECONDITION: Self::is_valid_escape('\\', self.first()) returns true
     fn consume_escaped(&mut self) {
+        debug_assert!(Self::is_valid_escape_second_char(self.first()));
         let curr = self.bump().unwrap_or(EOF_CHAR);
         match curr {
             c if c.is_ascii_hexdigit() => {
@@ -650,6 +656,7 @@ impl Cursor<'_> {
     /// which itself is only called as a special case for parsing the [unicode range descriptor](https://drafts.csswg.org/css-fonts-4/#descdef-font-face-unicode-range)
     /// this single invocation in the entire language is due to a bad syntax design in early CSS.
     fn consume_unicode_range(&mut self) -> TokenKind {
+        debug_assert!(self.is_unicode_range_start());
         self.bump_two(); // U+
         let mut count_hex_question = 0;
         self.bump_while_first(|ch| {
@@ -715,7 +722,8 @@ impl Cursor<'_> {
         match self.first() {
             '-' => {
                 match self.second() {
-                    c if c == '-' || Self::is_ident_start_char(c)  => { 
+                    '-' => true,
+                    c if Self::is_ident_start_char(c)  => { 
                         true 
                     },
                     '\\' => Self::is_valid_escape_second_char(self.third()),

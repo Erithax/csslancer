@@ -19,6 +19,7 @@ pub mod event;
 pub mod token_set;
 pub mod parse_error;
 pub mod reparsing;
+pub mod fuzz;
 
 use std::marker::PhantomData;
 
