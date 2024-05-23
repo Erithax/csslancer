@@ -159,6 +159,7 @@ impl<'a> Converter<'a> {
                 TokenKind::Url => T![url],
                 TokenKind::Number => T![number],
                 TokenKind::UnicodeRange => T![unicode_range],
+                TokenKind::ErroneousUrl => T![bad_url], // todo?
                 TokenKind::BadUrl => T![bad_url],
                 TokenKind::BadString => T![bad_string],
                 TokenKind::UnrestrictedHash => T![unrestricted_hash],

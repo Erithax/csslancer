@@ -96,27 +96,32 @@ pub(crate) fn reparser(node: &SyntaxNode) -> Option<fn(&mut Parser<'_>) -> Optio
 
 
 /// A parsing function for a specific braced-block.
-pub struct Reparser(fn(&mut Parser<'_>) -> Option<SyntaxKind>);
+pub struct DeclarationsReparser(fn(&mut Parser<'_>) -> Option<SyntaxKind>);
 
-impl Reparser {
+impl DeclarationsReparser {
     /// If the node is a braced block, return the corresponding `Reparser`.
     #[inline]
     pub fn for_node(
         node: &SyntaxNode
-    ) -> Option<Reparser> {
-        reparser(node).map(Reparser)
+    ) -> Option<DeclarationsReparser> {
+        reparser(node).map(DeclarationsReparser)
     }
 
-    /// Re-parse given tokens using this `Reparser`.
+    /// Re-parse given tokens using this `DeclarationsReparser`.
     ///
     /// Tokens must start with `{`, end with `}` and form a valid brace
     /// sequence.
-    pub fn parse(self, tokens: &Input) -> Output {
-        let Reparser(r) = self;
+    pub fn parse(self, tokens: &Input) -> Option<Output> {
+        debug_assert_eq!(SyntaxKind::L_CURLY, tokens.kind(0));
+        debug_assert_eq!(SyntaxKind::R_CURLY, tokens.last_kind());
+        let DeclarationsReparser(r) = self;
         let mut p = Parser::new(tokens);
-        r(&mut p);
+        p.parse_body(r);
+        if !p.at(SyntaxKind::EOF) {
+            return None
+        }
         let events = p.finish();
-        event::process(events)
+        Some(event::process(events))
     }
 }
 
@@ -141,6 +146,12 @@ fn reparse_token(
     root: &SyntaxNode,
     edit: &Indel,
 ) -> Option<(GreenNode, Vec<SyntaxError>, TextRange)> {
+    assert!(
+        root.text_range().contains_range(edit.delete),
+        "Bad range: node range {:?}, range {:?}",
+        root.text_range(),
+        edit.delete,
+    );
     let prev_token = root.covering_element(edit.delete).as_token()?.clone();
     let prev_token_kind = prev_token.kind();
     match prev_token_kind {
@@ -190,19 +201,22 @@ fn reparse_block(
     root: &SyntaxNode,
     edit: &Indel,
 ) -> Option<(GreenNode, Vec<SyntaxError>, TextRange)> {
-    let (node, reparser) = find_reparsable_node(root, edit.delete)?;
-    let text = get_text_after_edit(node.clone().into(), edit);
+    let (child_declarations_node, reparser) = find_reparsable_node(root, edit.delete)?;
+    assert_eq!(SyntaxKind::DECLARATIONS, child_declarations_node.kind());
+    //let node = child_declarations_node.parent().unwrap();
+    let text = get_text_after_edit(child_declarations_node.clone().into(), edit);
+    let node = child_declarations_node;
 
     let lexed = lex_to_syn::LexedStr::new(text.as_str());
     let parser_input = lexed.to_input();
-    if !is_balanced(&lexed) {
+    if !is_braced_n_balanced(&lexed) {
         return None;
     }
 
-    let tree_traversal = reparser.parse(&parser_input);
+    let tree_traversal = reparser.parse(&parser_input)?;
 
     let (green, new_parser_errors, _eof) = build_tree(lexed, tree_traversal);
-
+    assert_eq!(<SyntaxKind as Into<u16>>::into(node.kind()), green.kind().0);
     Some((node.replace_with(green), new_parser_errors, node.text_range()))
 }
 
@@ -210,10 +224,15 @@ fn get_text_after_edit(element: SyntaxElement, edit: &Indel) -> String {
     let edit = Indel::replace(edit.delete - element.text_range().start(), edit.insert.clone());
 
     let mut text = match element {
-        NodeOrToken::Token(token) => token.text().to_owned(),
-        NodeOrToken::Node(node) => node.text().to_string(),
+        NodeOrToken::Token(ref token) => token.text().to_owned(),
+        NodeOrToken::Node(ref node) => node.text().to_string(),
     };
     edit.apply(&mut text);
+    debug_assert_eq!(text, {
+        let mut s = match element {NodeOrToken::Token(token) => token.text().to_owned(), NodeOrToken::Node(node) => node.text().to_string()};
+        s.replace_range((<TextSize as Into<usize>>::into(edit.delete.start()))..(<TextSize as Into<usize>>::into(edit.delete.end())), &edit.insert);
+        s
+    });
     text
 }
 
@@ -221,18 +240,24 @@ fn is_contextual_kw(text: &str) -> bool {
     matches!(text, "auto" | "default" | "union")
 }
 
-fn find_reparsable_node(node: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, Reparser)> {
+fn find_reparsable_node(node: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, DeclarationsReparser)> {
+    assert!(
+        node.text_range().contains_range(range),
+        "Bad range: node range {:?}, range {:?}",
+        node.text_range(),
+        range,
+    );
     let node = node.covering_element(range);
 
     node.ancestors().find_map(|node| {
         // let first_child = node.first_child_or_token().map(|it| it.kind());
         // let parent = node.parent().map(|it| it.kind());
         // Reparser::for_node(node.kind(), first_child, parent).map(|r| (node, r))
-        Reparser::for_node(&node).map(|r| (node, r))
+        DeclarationsReparser::for_node(&node).map(|r| (node, r))
     })
 }
 
-fn is_balanced(lexed: &lex_to_syn::LexedStr<'_>) -> bool {
+fn is_braced_n_balanced(lexed: &lex_to_syn::LexedStr<'_>) -> bool {
     if lexed.is_empty() || lexed.kind(0) != T!['{'] || lexed.kind(lexed.len() - 1) != T!['}'] {
         return false;
     }
@@ -275,6 +300,7 @@ fn merge_errors(
         let offsetted_range = new_err.range() + range_before_reparse.start();
         new_err.with_range(offsetted_range)
     }));
+    res.dedup_by_key(|e| format!("{:?}{:?}{}", e.range().start(), e.range().end(), e.to_string()));
     res
 }
 

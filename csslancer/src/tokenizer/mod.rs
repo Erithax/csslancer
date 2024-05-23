@@ -122,6 +122,7 @@ pub enum TokenKind {
     ///
     /// This token always indicates a parse error.
     BadUrl,
+    ErroneousUrl, // TODO: better way to handle parse errors than this jank
 
     /// [`<bad-string-token>`](https://drafts.csswg.org/css-syntax/#typedef-bad-string-token)
     ///
@@ -458,7 +459,7 @@ impl Cursor<'_> {
         while let Some(curr) = self.bump() {
             match curr {
                 ')' => return TokenKind::Url,
-                EOF_CHAR => todo!("parse error which returns non error token?"),
+                EOF_CHAR => return TokenKind::ErroneousUrl,
                 c if is_white_space(c) => {
                     self.consume_whitespace();
                     match self.first() {
@@ -468,7 +469,7 @@ impl Cursor<'_> {
                         },
                         EOF_CHAR => {
                             self.bump();
-                            todo!("parse error which returns non error token?")
+                            return TokenKind::ErroneousUrl
                         },
                         _ => {
                             return self.consume_bad_url_remnants()
@@ -488,7 +489,7 @@ impl Cursor<'_> {
                 _ => {}
             }
         }
-        todo!("parse error which returns non error token?")
+        return TokenKind::ErroneousUrl
     }
 
 
@@ -497,7 +498,7 @@ impl Cursor<'_> {
     fn consume_bad_url_remnants(&mut self) -> TokenKind {
         while let Some(curr) = self.bump() {
             match curr {
-                ')' | EOF_CHAR => {return TokenKind::BadUrl},
+                ')' | EOF_CHAR => break,
                 c if Self::is_valid_escape(c, self.first()) => {
                     self.consume_escaped();
                 },

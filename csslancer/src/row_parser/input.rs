@@ -88,6 +88,10 @@ impl Input {
 
 /// pub(crate) impl used by the parser to consume `Tokens`.
 impl Input {
+    pub(crate) fn last_kind(&self) -> SyntaxKind {
+        *self.kind.last().unwrap_or(&SyntaxKind::EOF)
+    }
+
     pub(crate) fn kind(&self, idx: usize) -> SyntaxKind {
         self.kind.get(idx).copied().unwrap_or(SyntaxKind::EOF)
     }

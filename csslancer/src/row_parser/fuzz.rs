@@ -21,7 +21,25 @@
     
 // }
 
+/*
+```
+/* All <a> elements. */
+a {
+ coolorlue;
+}
+```
+40..41 ||| ```{
+ coolorlue;
+}
+```
+*/
+
+use std::{io::Write, ops::Range, str::FromStr};
+
+use lsp_types::Url;
 use rowan::TextSize;
+
+use crate::{row_parser::fuzz, workspace::source::Source};
 
 use super::parse_source_file_text;
 
@@ -51,39 +69,94 @@ pub fn init() {
         parse_source_file_text(&css);
     }
     println!("PARSED X MUTATIONS WITHOUT PANIC");
+
+    let mut fuzz_errs = 0;
+    let mut fuzz_err_dir = std::path::Path::new(file!()).parent().unwrap().to_path_buf();
+    fuzz_err_dir.push("fuzz_errors");
+
+    if !fuzz_err_dir.exists() {
+      std::fs::create_dir(&fuzz_err_dir).unwrap();
+    }
+
+    for _ in 0..100 {
+      // TODO let mut css = all_css();
+      let mut css = TYPE_SELECTORS_CSS.to_owned();
+      let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+      for _ in 0..100 {
+        let (del_range, repl_text) = get_text_mutations(&mut css);
+        css.replace_range(del_range.clone(), &repl_text);
+
+        let mut parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+        
+        reparsed_src.edit(del_range, repl_text);
+
+        assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
+        assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
+
+        fn print_err(e: &crate::row_parser::SyntaxError) -> String {
+          format!("{:?}-{:?}:{}", e.range().start(), e.range().end(), e.to_string())
+        }
+
+        if let Some(ref mut errs) = parsed_src.parse.errors {
+          triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
+        }
+        if let Some(ref mut errs) = reparsed_src.parse.errors {
+          triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
+        }
+
+        if parsed_src.parse != reparsed_src.parse {
+          fuzz_errs += 1;
+          let r = fastrand::u32(..);
+          let hex = format!("{r:x}");
+          fuzz_err_dir.push(hex.clone() + "_" + "parsed");
+          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", parsed_src.parse.fancy_string()).unwrap();
+          fuzz_err_dir.pop();
+          fuzz_err_dir.push(hex.clone() + "_" + "reparsed");
+          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", reparsed_src.parse.fancy_string()).unwrap();
+          fuzz_err_dir.pop();
+          fuzz_err_dir.push(hex.clone() + "_css");
+          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", css).unwrap();
+          fuzz_err_dir.pop();
+        }
+      }
+    }
 }
 
 pub fn mutate_ascii(text: &mut String) {
-    let chars_num = text.chars().count();
+    let (del_range, repl_text) = get_text_mutations(text);
+    text.replace_range(del_range, &repl_text);
+}
 
-    let copy_range_char_start = fastrand::usize(0..chars_num);
-    let copy_range_char_end = fastrand::usize(copy_range_char_start..chars_num);
-    let del_range_char_start = fastrand::usize(0..chars_num);
-    let del_range_char_end = fastrand::usize(del_range_char_start..text.len());
+pub fn get_text_mutations(text: &mut String) -> (Range<usize>, String) {
+  let chars_num = text.chars().count();
 
-    let mut copy_range_idx_start = 0;
-    let mut copy_range_idx_end = 0;
-    let mut del_range_idx_start = 0;
-    let mut del_range_idx_end = 0;
-    for (i, ch) in text.char_indices() {
-      let bytes_size = ch.len_utf8();
-      if i <= copy_range_char_start {
-        copy_range_idx_start += bytes_size;
-      }
-      if i <= copy_range_char_end {
-        copy_range_idx_end += bytes_size;
-      } 
-      if i <= del_range_char_start {
-        del_range_idx_start += bytes_size;
-      }
-      if i <= del_range_char_end {
-        del_range_idx_end += bytes_size;
-      }
+  let copy_range_char_start = fastrand::usize(0..chars_num);
+  let copy_range_char_end = fastrand::usize(copy_range_char_start..chars_num);
+  let del_range_char_start = fastrand::usize(0..chars_num);
+  let del_range_char_end = fastrand::usize(del_range_char_start..text.len());
+
+  let mut copy_range_idx_start = 0;
+  let mut copy_range_idx_end = 0;
+  let mut del_range_idx_start = 0;
+  let mut del_range_idx_end = 0;
+  for (i, ch) in text.char_indices() {
+    let bytes_size = ch.len_utf8();
+    if i <= copy_range_char_start {
+      copy_range_idx_start += bytes_size;
     }
+    if i <= copy_range_char_end {
+      copy_range_idx_end += bytes_size;
+    } 
+    if i <= del_range_char_start {
+      del_range_idx_start += bytes_size;
+    }
+    if i <= del_range_char_end {
+      del_range_idx_end += bytes_size;
+    }
+  }
 
-    let replace_text = text[copy_range_idx_start..copy_range_idx_end].to_owned();
-
-    text.replace_range(del_range_idx_start..del_range_idx_end, &replace_text);
+  let replace_text = text[copy_range_idx_start..copy_range_idx_end].to_owned();
+  return (del_range_idx_start..del_range_idx_end, replace_text)
 }
 
 pub fn all_css() -> String {

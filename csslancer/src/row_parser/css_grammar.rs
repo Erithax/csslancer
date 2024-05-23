@@ -1,3 +1,4 @@
+// TODO: don't emit an error node, but emit parsed node with nested error
 
 #![allow(clippy::unit_arg)]
 #![allow(clippy::collapsible_if)]
@@ -53,6 +54,13 @@ impl Parser<'_> {
         m.complete(self, SyntaxKind::ERROR);
     }
 
+    pub fn finitato(
+        &mut self,
+        error: ParseError,
+    ) {
+        self.err_and_bump(error.issue().desc);
+    }
+
     pub fn fintio_recover(
         &mut self,
         m: Marker,
@@ -63,6 +71,16 @@ impl Parser<'_> {
         self.error(error.issue().desc);
         self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
         m.complete(self, SyntaxKind::ERROR); // No rollback here! creates infinite loops on error (because nothing is consumed)
+    }
+
+    pub fn finitato_recover(
+        &mut self,
+        error: ParseError,
+        resync_tokens: Option<&[SyntaxKind]>,
+        resync_stop_tokens: Option<&[SyntaxKind]>,
+    ) {
+        self.error(error.issue().desc);
+        self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
     }
 
     pub fn fintio_recover_nested_error(
@@ -85,13 +103,14 @@ impl Parser<'_> {
         resync_stop_tokens: &[SyntaxKind],
     ) -> bool {
         loop {
+            if self.current() == SyntaxKind::EOF {
+                return false;
+            }
             if resync_tokens.contains(&self.current()) {
                 self.bump_any();
                 return true;
             } else if resync_stop_tokens.contains(&self.current()) {
                 return true;
-            } else if self.current() == SyntaxKind::EOF {
-                return false;
             }
             self.bump_any();
         }
@@ -311,7 +330,9 @@ impl Parser<'_> {
             }
 
             if Self::needs_semicolon_after(kind) && !self.eat(T![;]) {
-				return Some(self.fintio_recover(m, ParseError::SemiColonExpected, Some(&[T![;], SyntaxKind::R_CURLY]), None))
+				self.finitato_recover(ParseError::SemiColonExpected, Some(&[T![;], SyntaxKind::R_CURLY]), None);
+                m.complete(self, SyntaxKind::DECLARATIONS);
+                return Some(())
 			}
 
             while self.eat(T![;]) {
@@ -319,7 +340,7 @@ impl Parser<'_> {
             }
         }
         if !self.eat(SyntaxKind::R_CURLY) {
-            return Some(self.fintio_recover(m, ParseError::RightCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None))
+            self.finitato_recover(ParseError::RightCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None);
         }
         m.complete(self, SyntaxKind::DECLARATIONS);
         Some(())
@@ -338,7 +359,7 @@ impl Parser<'_> {
         }
         
         //m.complete(self, SyntaxKind::UNDEFINED);
-        m.abandon(self); // attack child DECLARATIONS to parent as is. Incremental reparsing relies on this.
+        m.abandon(self); // attach child DECLARATIONS to parent as is. Incremental reparsing relies on this.
     }
 
     pub fn parse_selector_opt(&mut self, is_nested: bool) -> Option<()> {

@@ -214,9 +214,6 @@ pub(crate) fn must_parse_fn<F: Fn(&mut parser::Parser) -> Option<()>>(input: &in
             match step {
                 output::Step::Enter { .. } => depth += 1,
                 output::Step::Exit => depth -= 1,
-                output::Step::FloatSplit { ends_in_dot: has_pseudo_dot } => {
-                    depth -= 1 + !has_pseudo_dot as usize
-                }
                 output::Step::Token { .. } | output::Step::Error { .. } => (),
             }
         }

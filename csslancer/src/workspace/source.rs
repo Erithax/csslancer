@@ -218,6 +218,13 @@ impl Source {
 
         //let inner = std::sync::Arc::make_mut(&mut self.0);
 
+        assert!(
+            self.parse.syntax_node().text_range().contains_range(TextRange::new(replace.start.try_into().unwrap(), replace.end.try_into().unwrap())), 
+            "Tried to edit range `{:?}` outside of text range `{:?}`", 
+            replace, 
+            self.parse.syntax_node().text_range(),
+        );
+
         let indel = ra_ap_text_edit::Indel {
             delete: TextRange::new(
                 TextSize::new(replace.start as u32),
@@ -292,7 +299,7 @@ impl Line {
                         utf8_offset: utf8_offset + "\r\n".len(),
                         utf16_offset: utf16_offset + '\r'.len_utf16() + '\n'.len_utf16(),
                     });
-                } else if ch == '\n' && text.get(byt_off - 1..byt_off) == Some("\r") {
+                } else if ch == '\n' && byt_off > 1 && text.get(byt_off - 1..byt_off) == Some("\r") {
                     // added on previous iteration
                 } else {
                     lines.push(Line {
