@@ -300,7 +300,6 @@ fn merge_errors(
         let offsetted_range = new_err.range() + range_before_reparse.start();
         new_err.with_range(offsetted_range)
     }));
-    res.dedup_by_key(|e| format!("{:?}{:?}{}", e.range().start(), e.range().end(), e.to_string()));
     res
 }
 

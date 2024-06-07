@@ -1,5 +1,4 @@
 
-
 // We fuzz 2 things
 // ## 1. Reparsing vs. parsing
 // We fuzz test that incremental reparsing generates the same syntax tree and
@@ -12,36 +11,45 @@
 // Pull css files from repositories and top websites and parse them. Files with
 // parsing errors are collected for review.
 
-
 // pub fn collect_files() -> Vec<&str> {
-    
+
 // }
 
 // pub fn generate_plausible_css() -> &str {
-    
+
 // }
 
 /*
 ```
 /* All <a> elements. */
 a {
- coolorlue;
+    coolorlue;
 }
 ```
 40..41 ||| ```{
- coolorlue;
+coolorlue;
 }
 ```
 */
 
-use std::{io::Write, ops::Range, str::FromStr};
+use std::{io::{Read, Write}, ops::Range, str::FromStr};
 
+use futures::stream::FusedStream;
 use lsp_types::Url;
 use rowan::TextSize;
+use serde::{Deserialize, Serialize};
 
 use crate::{row_parser::fuzz, workspace::source::Source};
 
 use super::parse_source_file_text;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ReplRanges {
+    pub del_range: std::ops::Range<usize>,
+    pub repl_range: std::ops::Range<usize>,
+    pub repl_text: String,
+}
+
 
 pub fn init() {
     let seed = fastrand::u64(..);
@@ -75,51 +83,105 @@ pub fn init() {
     fuzz_err_dir.push("fuzz_errors");
 
     if !fuzz_err_dir.exists() {
-      std::fs::create_dir(&fuzz_err_dir).unwrap();
+        std::fs::create_dir(&fuzz_err_dir).unwrap();
     }
 
-    for _ in 0..100 {
-      // TODO let mut css = all_css();
-      let mut css = TYPE_SELECTORS_CSS.to_owned();
-      let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
-      for _ in 0..100 {
-        let (del_range, repl_text) = get_text_mutations(&mut css);
-        css.replace_range(del_range.clone(), &repl_text);
+    const FUZZ_RESTARTS: usize = 10000;
+    const FUZZ_MUTATIONS: usize = 100;
 
-        let mut parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
-        
-        reparsed_src.edit(del_range, repl_text);
+    for fuzz_restart in 0..FUZZ_RESTARTS {
+        // TODO let mut css = all_css();
+        let mut css = TYPE_SELECTORS_CSS.to_owned();
+        let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+        for _ in 0..FUZZ_MUTATIONS {
+            let (del_range, repl_text) = get_text_mutations(&mut css);
+            let prev_css = css.clone();
+            css.replace_range(del_range.clone(), &repl_text);
 
-        assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
-        assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
+            let mut parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+            
+            reparsed_src.edit(del_range.clone(), repl_text.clone());
 
-        fn print_err(e: &crate::row_parser::SyntaxError) -> String {
-          format!("{:?}-{:?}:{}", e.range().start(), e.range().end(), e.to_string())
+            assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
+            assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
+
+            fn print_err(e: &crate::row_parser::SyntaxError) -> String {
+                format!("{:?}-{:?}:{}", e.range().start(), e.range().end(), e.to_string())
+            }
+
+            if let Some(ref mut errs) = parsed_src.parse.errors {
+                triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
+            }
+            if let Some(ref mut errs) = reparsed_src.parse.errors {
+                triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
+            }
+
+            if parsed_src.parse != reparsed_src.parse {
+                fuzz_errs += 1;
+                let r = fastrand::u32(..);
+                let hex = format!("{r:x}");
+                fuzz_err_dir.push(hex.clone() + "_full_reparsed");
+                write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", parsed_src.parse.fancy_string()).unwrap();
+                fuzz_err_dir.pop();
+                fuzz_err_dir.push(hex.clone() + "_incr_reparsed");
+                write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", reparsed_src.parse.fancy_string()).unwrap();
+                fuzz_err_dir.pop();
+                fuzz_err_dir.push(hex.clone() + "_prev_css");
+                write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", prev_css).unwrap();
+                fuzz_err_dir.pop();
+                fuzz_err_dir.push(hex.clone() + "_css");
+                write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", css).unwrap();
+                fuzz_err_dir.pop();
+                fuzz_err_dir.push(hex.clone() + "_repl");
+                serde_json::to_writer(std::fs::File::create(&fuzz_err_dir).unwrap(), &ReplRanges {
+                    del_range: del_range.clone(),
+                    repl_range: del_range.start..repl_text.len(),
+                    repl_text: repl_text.to_string(),
+                }).unwrap();
+                //write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "DELETE: {:?}\n//////////{}/////////\n", del_range, repl_text).unwrap();
+                fuzz_err_dir.pop();
+            }
         }
 
-        if let Some(ref mut errs) = parsed_src.parse.errors {
-          triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
+        if fuzz_restart % 100 == 0 {
+          println!("Completed {fuzz_restart} fuzz restarts with {FUZZ_MUTATIONS} mutations each, with {fuzz_errs} errors so far.");
         }
-        if let Some(ref mut errs) = reparsed_src.parse.errors {
-          triomphe::Arc::get_mut(errs).unwrap().sort_unstable_by_key(|e| print_err(e));
-        }
-
-        if parsed_src.parse != reparsed_src.parse {
-          fuzz_errs += 1;
-          let r = fastrand::u32(..);
-          let hex = format!("{r:x}");
-          fuzz_err_dir.push(hex.clone() + "_" + "parsed");
-          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", parsed_src.parse.fancy_string()).unwrap();
-          fuzz_err_dir.pop();
-          fuzz_err_dir.push(hex.clone() + "_" + "reparsed");
-          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", reparsed_src.parse.fancy_string()).unwrap();
-          fuzz_err_dir.pop();
-          fuzz_err_dir.push(hex.clone() + "_css");
-          write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "{}", css).unwrap();
-          fuzz_err_dir.pop();
-        }
-      }
     }
+}
+
+pub fn retest_fuzz_error(hex_str: &str) {
+    let mut fuzz_err_dir = std::path::Path::new(file!()).parent().unwrap().to_path_buf();
+    fuzz_err_dir.push("fuzz_errors/");
+
+    let mut css = String::new();
+    println!("{}", fuzz_err_dir.to_string_lossy());
+    std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_css"))).unwrap().read_to_string(&mut css).unwrap();
+    
+    let mut prev_css = String::new();
+    std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_prev_css"))).unwrap().read_to_string(&mut prev_css).unwrap();
+    
+    let rangesstuff: ReplRanges = serde_json::from_reader::<std::fs::File, ReplRanges>(std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_repl"))).unwrap()).unwrap().clone();
+
+    let mut range_str = String::new();
+    std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_repl"))).unwrap().read_to_string(&mut range_str).unwrap();
+    
+    let del_range = rangesstuff.del_range;
+    let repl_text = rangesstuff.repl_text;
+
+    let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+    reparsed_src.edit(del_range.clone(), repl_text.clone());
+
+
+    css.replace_range(del_range.clone(), &repl_text);
+    let parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+
+
+    assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
+    assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
+    println!("{}", parsed_src.parse.fancy_string());
+    println!("{}", reparsed_src.parse.fancy_string());
+    assert_eq!(parsed_src.parse, reparsed_src.parse);
+    println!("Completed reparse of fuzz sample {hex_str} succesfully.");
 }
 
 pub fn mutate_ascii(text: &mut String) {
@@ -128,35 +190,35 @@ pub fn mutate_ascii(text: &mut String) {
 }
 
 pub fn get_text_mutations(text: &mut String) -> (Range<usize>, String) {
-  let chars_num = text.chars().count();
+    let chars_num = text.chars().count();
 
-  let copy_range_char_start = fastrand::usize(0..chars_num);
-  let copy_range_char_end = fastrand::usize(copy_range_char_start..chars_num);
-  let del_range_char_start = fastrand::usize(0..chars_num);
-  let del_range_char_end = fastrand::usize(del_range_char_start..text.len());
+    let copy_range_char_start = fastrand::usize(0..chars_num);
+    let copy_range_char_end = fastrand::usize(copy_range_char_start..chars_num);
+    let del_range_char_start = fastrand::usize(0..chars_num);
+    let del_range_char_end = fastrand::usize(del_range_char_start..text.len());
 
-  let mut copy_range_idx_start = 0;
-  let mut copy_range_idx_end = 0;
-  let mut del_range_idx_start = 0;
-  let mut del_range_idx_end = 0;
-  for (i, ch) in text.char_indices() {
-    let bytes_size = ch.len_utf8();
-    if i <= copy_range_char_start {
-      copy_range_idx_start += bytes_size;
+    let mut copy_range_idx_start = 0;
+    let mut copy_range_idx_end = 0;
+    let mut del_range_idx_start = 0;
+    let mut del_range_idx_end = 0;
+    for (i, ch) in text.char_indices() {
+        let bytes_size = ch.len_utf8();
+        if i <= copy_range_char_start {
+            copy_range_idx_start += bytes_size;
+        }
+        if i <= copy_range_char_end {
+            copy_range_idx_end += bytes_size;
+        } 
+        if i <= del_range_char_start {
+            del_range_idx_start += bytes_size;
+        }
+        if i <= del_range_char_end {
+            del_range_idx_end += bytes_size;
+        }
     }
-    if i <= copy_range_char_end {
-      copy_range_idx_end += bytes_size;
-    } 
-    if i <= del_range_char_start {
-      del_range_idx_start += bytes_size;
-    }
-    if i <= del_range_char_end {
-      del_range_idx_end += bytes_size;
-    }
-  }
 
-  let replace_text = text[copy_range_idx_start..copy_range_idx_end].to_owned();
-  return (del_range_idx_start..del_range_idx_end, replace_text)
+    let replace_text = text[copy_range_idx_start..copy_range_idx_end].to_owned();
+    return (del_range_idx_start..del_range_idx_end, replace_text)
 }
 
 pub fn all_css() -> String {

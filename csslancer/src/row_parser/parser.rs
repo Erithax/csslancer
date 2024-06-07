@@ -324,6 +324,45 @@ impl<'t> Parser<'t> {
         m.complete(self, ERROR);
     }
 
+    /// Create an error node and consume the next token.
+    pub(crate) fn err_resync(&mut self, message: &str, resync_tokens: TokenSet, resync_stop_tokens: TokenSet) -> bool {
+
+        let kind = self.current();
+        if matches!(kind, T!['{'] | T!['}']) || resync_stop_tokens.contains(kind) {
+            self.error(message);
+            return true;
+        } else if resync_tokens.contains(kind) {
+            let m = self.start();
+            self.bump_any(); 
+            self.error(message);
+            m.complete(self, ERROR);
+            return true;
+        }
+
+        let m = self.start();
+        self.bump_any();
+
+        loop {
+            let kind = self.current();
+            if matches!(kind, T!['{'] | T!['}']) || resync_stop_tokens.contains(kind) {
+                self.error(message);
+                m.complete(self, ERROR);
+                return true;
+            } else if resync_tokens.contains(kind) {
+                self.bump_any(); 
+                self.error(message);
+                m.complete(self, ERROR);
+                return true;
+            } else if kind == SyntaxKind::EOF {
+                self.error(message);
+                m.complete(self, ERROR);
+                return false;
+            }
+            self.bump_any();
+        }
+    
+    }
+
     fn do_bump(&mut self, kind: SyntaxKind, n_raw_tokens: u8) {
         self.pos += n_raw_tokens as usize;
         self.steps.set(0);

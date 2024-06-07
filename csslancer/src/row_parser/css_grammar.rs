@@ -3,10 +3,13 @@
 #![allow(clippy::unit_arg)]
 #![allow(clippy::collapsible_if)]
 
+use ungrammar::Token;
+
 use super::parse_error::ParseError;
 use super::parser::{Parser, Marker};
 use super::syntax_kind_gen::SyntaxKind;
 use super::token_set::TokenSet;
+use super::Parse;
 use crate::T;
 
 pub enum ReferenceType {
@@ -45,76 +48,82 @@ impl Parser<'_> {
         m.complete(self, s);
     }
 
-    pub fn finito(
+    // pub fn finito(
+    //     &mut self,
+    //     m: Marker,
+    //     error: ParseError,
+    // ) {
+    //     self.err_and_bump(error.issue().desc);
+    //     m.complete(self, SyntaxKind::ERROR);
+    // }
+
+    pub fn err_pe(&mut self, error: ParseError) {
+        self.error(error.issue().desc);
+    }
+
+    pub fn err_and_bump_pe(
         &mut self,
-        m: Marker,
         error: ParseError,
     ) {
         self.err_and_bump(error.issue().desc);
-        m.complete(self, SyntaxKind::ERROR);
     }
 
-    pub fn finitato(
-        &mut self,
-        error: ParseError,
-    ) {
-        self.err_and_bump(error.issue().desc);
-    }
+    // pub fn fintio_recover(
+    //     &mut self,
+    //     m: Marker,
+    //     error: ParseError,
+    //     resync_tokens: Option<&[SyntaxKind]>,
+    //     resync_stop_tokens: Option<&[SyntaxKind]>,
+    // ) {
+    //     self.error(error.issue().desc);
+    //     self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
+    //     m.complete(self, SyntaxKind::ERROR); // No rollback here! creates infinite loops on error (because nothing is consumed)
+    // }
 
-    pub fn fintio_recover(
-        &mut self,
-        m: Marker,
-        error: ParseError,
-        resync_tokens: Option<&[SyntaxKind]>,
-        resync_stop_tokens: Option<&[SyntaxKind]>,
-    ) {
-        self.error(error.issue().desc);
-        self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
-        m.complete(self, SyntaxKind::ERROR); // No rollback here! creates infinite loops on error (because nothing is consumed)
-    }
-
-    pub fn finitato_recover(
+    pub fn err_resync_pe(
         &mut self,
         error: ParseError,
-        resync_tokens: Option<&[SyntaxKind]>,
-        resync_stop_tokens: Option<&[SyntaxKind]>,
-    ) {
-        self.error(error.issue().desc);
-        self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
-    }
-
-    pub fn fintio_recover_nested_error(
-        &mut self,
-        error: ParseError,
-        resync_tokens: Option<&[SyntaxKind]>,
-        resync_stop_tokens: Option<&[SyntaxKind]>,
+        resync_tokens: Option<TokenSet>,
+        resync_stop_tokens: Option<TokenSet>,
     ) -> bool {
-        let m = self.start();
-        self.error(error.issue().desc);
-        let resynced = self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
-        m.complete(self, SyntaxKind::ERROR);
-        resynced
+        self.err_resync(error.issue().desc, resync_tokens.unwrap_or(TokenSet::EMPTY), resync_stop_tokens.unwrap_or(TokenSet::EMPTY))
+        //self.error(error.issue().desc);
+        //self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
     }
 
-    /// Returns if resync was succesful, or not (EOF reached)
-    pub fn resync(
-        &mut self,
-        resync_tokens: &[SyntaxKind],
-        resync_stop_tokens: &[SyntaxKind],
-    ) -> bool {
-        loop {
-            if self.current() == SyntaxKind::EOF {
-                return false;
-            }
-            if resync_tokens.contains(&self.current()) {
-                self.bump_any();
-                return true;
-            } else if resync_stop_tokens.contains(&self.current()) {
-                return true;
-            }
-            self.bump_any();
-        }
-    }
+    // #[deprecated]
+    // pub fn fintio_recover_nested_error(
+    //     &mut self,
+    //     error: ParseError,
+    //     resync_tokens: Option<&[SyntaxKind]>,
+    //     resync_stop_tokens: Option<&[SyntaxKind]>,
+    // ) -> bool {
+    //     let m = self.start();
+    //     self.error(error.issue().desc);
+    //     let resynced = self.resync(resync_tokens.unwrap_or(&[]), resync_stop_tokens.unwrap_or(&[]));
+    //     m.complete(self, SyntaxKind::ERROR);
+    //     resynced
+    // }
+
+    // Returns if resync was succesful, or not (EOF reached)
+    // pub fn resync(
+    //     &mut self,
+    //     resync_tokens: &[SyntaxKind],
+    //     resync_stop_tokens: &[SyntaxKind],
+    // ) -> bool {
+    //     loop {
+    //         if self.current() == SyntaxKind::EOF {
+    //             return false;
+    //         }
+    //         if resync_tokens.contains(&self.current()) {
+    //             self.bump_any();
+    //             return true;
+    //         } else if resync_stop_tokens.contains(&self.current()) {
+    //             return true;
+    //         }
+    //         self.bump_any();
+    //     }
+    // }
     
 }
 
@@ -232,8 +241,9 @@ impl Parser<'_> {
 
         while self.eat(T![,]) {
             if self.parse_selector_opt(is_nested).is_none() {
-                self.finito(m, ParseError::SelectorExpected);
-                return Some(())
+                self.err_resync_pe(ParseError::SelectorExpected, None, None);
+                // self.finito(m, ParseError::SelectorExpected);
+                // return Some(())
             }
         }
 
@@ -330,7 +340,7 @@ impl Parser<'_> {
             }
 
             if Self::needs_semicolon_after(kind) && !self.eat(T![;]) {
-				self.finitato_recover(ParseError::SemiColonExpected, Some(&[T![;], SyntaxKind::R_CURLY]), None);
+				self.err_resync_pe(ParseError::SemiColonExpected, Some(TokenSet::new(&[T![;], SyntaxKind::R_CURLY])), None);
                 m.complete(self, SyntaxKind::DECLARATIONS);
                 return Some(())
 			}
@@ -340,7 +350,7 @@ impl Parser<'_> {
             }
         }
         if !self.eat(SyntaxKind::R_CURLY) {
-            self.finitato_recover(ParseError::RightCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None);
+            self.err_resync_pe(ParseError::RightCurlyExpected, Some(TokenSet::new(&[SyntaxKind::R_CURLY, T![;]])), None);
         }
         m.complete(self, SyntaxKind::DECLARATIONS);
         Some(())
@@ -352,14 +362,14 @@ impl Parser<'_> {
     where
         F: FnMut(&mut Self) -> Option<SyntaxKind>
     {
-        let m = self.start();
+        //let m = self.start();
 
         if self.parse_declarations(parse_declaration_func).is_none() {
-            return self.fintio_recover(m, ParseError::LeftCurlyExpected, Some(&[SyntaxKind::R_CURLY, T![;]]), None)
+            self.err_resync_pe(ParseError::LeftCurlyExpected, Some(TokenSet::new(&[SyntaxKind::R_CURLY, T![;]])), None);
         }
         
         //m.complete(self, SyntaxKind::UNDEFINED);
-        m.abandon(self); // attach child DECLARATIONS to parent as is. Incremental reparsing relies on this.
+        //m.abandon(self); // attach child DECLARATIONS to parent as is. Incremental reparsing relies on this.
     }
 
     pub fn parse_selector_opt(&mut self, is_nested: bool) -> Option<()> {
@@ -397,13 +407,14 @@ impl Parser<'_> {
         }
 
         if !self.eat(T![:]) {
-            d.rollback(self);
-            return Some(self.fintio_recover(m, ParseError::ColonExpected, Some(&[T![:]]), Some(&[T![;]])))
+            //d.rollback(self);
+            self.err_resync_pe(ParseError::ColonExpected, Some(TokenSet::new(&[T![:]])), Some(TokenSet::new(&[T![;]])));
         }
 
         if self.parse_expr_opt(false).is_none() {
-            d.rollback(self);
-            return Some(self.finito(m, ParseError::PropertyValueExpected))
+            //d.rollback(self);
+            //return Some(self.finito(m, ParseError::PropertyValueExpected))
+            self.err_and_bump_pe(ParseError::PropertyValueExpected);
         }
 
         self.parse_prio_opt();
@@ -438,7 +449,9 @@ impl Parser<'_> {
         }
 
         if !self.eat(T![:]) {
-            return Some(self.fintio_recover(m, ParseError::ColonExpected, Some(&[T![:]]), None))
+            // todo? try resync to ':' and continue, else try resyncstop to ';' and return even if it fails
+            self.err_resync_pe(ParseError::ColonExpected, Some(TokenSet::new(&[T![:]])), Some(TokenSet::new(&[T![;]])));
+            //return Some(self.fintio_recover(m, ParseError::ColonExpected, Some(&[T![:]]), None))
         }
         let has_whitespace_after_colon = self.has_whitespace();
 
@@ -483,7 +496,7 @@ impl Parser<'_> {
         self.parse_custom_property_value(stop_tokens.unwrap_or(&[SyntaxKind::R_CURLY]));
 
         if !has_whitespace_after_colon && prev_pos == self.pos() {
-            return Some(self.finito(m, ParseError::PropertyValueExpected))
+            self.err_and_bump_pe(ParseError::PropertyValueExpected);
         }
 
         m.complete(self, SyntaxKind::DECLARATION_CUSTOM_PROPERTY);
@@ -533,7 +546,8 @@ impl Parser<'_> {
                         if on_stop_token!() && paren_dep == 0 && brack_dep == 0 {
                             break;
                         }
-                        return self.finito(m, ParseError::LeftCurlyExpected);
+                        self.err_pe(ParseError::LeftCurlyExpected);
+                        break
                     }
                 }
                 SyntaxKind::L_PAREN | T![function] => paren_dep += 1,
@@ -543,17 +557,16 @@ impl Parser<'_> {
                         if on_stop_token!() && brack_dep == 0 && curly_dep == 0 {
                             break;
                         }
-                        return self.finito(m, ParseError::LeftParenthesisExpected);
+                        self.err_pe(ParseError::LeftParenthesisExpected);
+                        break;
                     }
                 }
                 SyntaxKind::L_BRACK => brack_dep += 1,
                 SyntaxKind::R_BRACK => {
                     brack_dep -= 1;
                     if brack_dep < 0 {
-                        return self.finito(
-                            m,
-                            ParseError::LeftSquareBracketExpected
-                        );
+                        self.err_pe(ParseError::LeftSquareBracketExpected);
+                        break;
                     }
                 }
                 T![bad_string] => break,
@@ -567,7 +580,8 @@ impl Parser<'_> {
                     } else {
                         ParseError::RightCurlyExpected
                     };
-                    return self.finito(m, error);
+                    self.err_pe(error);
+                    break;
                 }
                 _ => {
                     // Consume all the rest
@@ -636,7 +650,7 @@ impl Parser<'_> {
         self.bump_any();
 
         if self.parse_uri_literal_opt().is_none() && self.parse_string_literal().is_none() {
-            return Some(self.finito(m, ParseError::URIOrStringExpected))
+            self.err_and_bump_pe(ParseError::URIOrStringExpected);
         }
 
         Some(self.complete_parse_import(m))
@@ -647,18 +661,16 @@ impl Parser<'_> {
         if self.eat_contextual_token(T![cxfunc_layer]) {
             // TODO: check vscode css langservice accepts empty `layer()`
             if !self.at(SyntaxKind::R_PAREN) && self.parse_layer_name().is_none() {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::IdentifierExpected,
-                    Some(&[T![;]]),
+                    Some(TokenSet::new(&[T![;]])),
                     None,
                 );
             }
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
-                    Some(&[SyntaxKind::R_PAREN]),
+                    Some(TokenSet::new(&[SyntaxKind::R_PAREN])),
                     None,
                 );
             }
@@ -669,10 +681,9 @@ impl Parser<'_> {
                 .or_else(|| Some(self.parse_supports_condition()));
 
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
-                    Some(&[SyntaxKind::R_PAREN]),
+                    Some(TokenSet::new(&[SyntaxKind::R_PAREN])),
                     None,
                 );
             }
@@ -700,17 +711,16 @@ impl Parser<'_> {
 
 
         if self.parse_uri_literal_opt().is_none() && self.parse_string_literal().is_none() {
-            return Some(self.fintio_recover(
-                m,
+            self.err_resync_pe(
                 ParseError::URIExpected,
-                Some(&[T![;]]),
+                Some(TokenSet::new(&[T![;]])),
                 None,
-            )); // TODO: parserror should be URIorStringLiteralExpected?
+            ); // TODO: parserror should be URIorStringLiteralExpected?
         }
         
 
         if !self.eat(T![;]) {
-            return Some(self.finito(m, ParseError::SemiColonExpected))
+            self.err_pe(ParseError::SemiColonExpected);
         }
         Some(self.varnish(m, SyntaxKind::NAMESPACE))
     }
@@ -745,7 +755,7 @@ impl Parser<'_> {
         self.bump_any();
 
         if self.parse_keyframe_ident().is_none() {
-            return Some(self.finito(m, ParseError::IdentifierExpected))
+            self.err_pe(ParseError::IdentifierExpected);
         }
 
         self.parse_body(|s: &mut Self| s.parse_keyframe_selector_opt().map(|_| SyntaxKind::KEYFRAME_SELECTOR));
@@ -787,7 +797,8 @@ impl Parser<'_> {
                 has_content = true;
             }
             if !has_content {
-                return Some(self.finito(m, ParseError::PercentageExpected)); // TODO better error for keyframe selector expected 
+                self.err_pe(ParseError::PercentageExpected) // TODO better error for keyframe selector expected 
+
             }
         }
         self.parse_body(|s: &mut Self| s.parse_rule_set_declaration_opt());
@@ -847,11 +858,11 @@ impl Parser<'_> {
         self.bump_any();
 
         if !self.at_contextual_token(T![cxid_valid_custom_prop]) {
-            return Some(self.finito(m, ParseError::IdentifierExpected))
+            self.err_pe(ParseError::IdentifierExpected);
         }
 
         if self.parse_ident_opt(Some(&[ReferenceType::Property])).is_none() {
-            return Some(self.finito(m, ParseError::IdentifierExpected))
+            self.err_pe(ParseError::IdentifierExpected);
         }
         self.parse_body(|s: &mut Self| s.parse_declaration_opt(None).map(|_| SyntaxKind::DECLARATION_CUSTOM_PROPERTY));
         Some(self.varnish(m, SyntaxKind::PROPERTY_AT_RULE))
@@ -876,7 +887,7 @@ impl Parser<'_> {
             return Some(self.varnish(m, SyntaxKind::LAYER))
         }
         if !self.eat(T![;]) {
-            return Some(self.finito(m, ParseError::SemiColonExpected));
+            self.err_pe(ParseError::SemiColonExpected);
         }
         Some(self.varnish(m, SyntaxKind::LAYER))
     }
@@ -904,7 +915,7 @@ impl Parser<'_> {
 
         while self.eat(T![,]) {
             if self.parse_layer_name().is_none() {
-                self.finito(m, ParseError::IdentifierExpected);
+                self.err_pe(ParseError::IdentifierExpected); // TODO: more specific parse error
                 return Some(name_count);
             }
             name_count += 1;
@@ -922,7 +933,7 @@ impl Parser<'_> {
         }
         while !self.has_whitespace() && self.eat(T![.]) {
             if self.has_whitespace() || self.parse_ident_opt(None).is_none() {
-                return Some(self.finito(m, ParseError::IdentifierExpected))
+                self.err_pe(ParseError::IdentifierExpected);
             }
         }
         Some(self.varnish(m, SyntaxKind::LAYER_NAME))
@@ -1001,10 +1012,9 @@ impl Parser<'_> {
             }
 
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
-                    Some(&[SyntaxKind::R_PAREN]),
+                    Some(TokenSet::new(&[SyntaxKind::R_PAREN])),
                     None,
                 );
             }
@@ -1023,12 +1033,12 @@ impl Parser<'_> {
             }
             return self.varnish(m, SyntaxKind::SUPPORTS_CONDITION)
         }
-        self.fintio_recover(
-            m,
+        self.err_resync_pe(
             ParseError::LeftParenthesisExpected,
-            Some(&[]),
-            Some(&[SyntaxKind::L_PAREN]),
-        )
+            Some(TokenSet::new(&[])),
+            Some(TokenSet::new(&[SyntaxKind::L_PAREN])),
+        );
+        self.varnish(m, SyntaxKind::SUPPORTS_CONDITION);
     }
 
     pub fn parse_media_declaration(&mut self, is_nested: bool) -> Option<SyntaxKind> {
@@ -1061,11 +1071,11 @@ impl Parser<'_> {
     pub fn parse_media_query_list(&mut self) {
         let m = self.start();
         if self.parse_media_query_opt().is_none() {
-            return self.finito(m, ParseError::MediaQueryExpected);
+            self.err_pe(ParseError::MediaQueryExpected);
         }
         while self.eat(T![,]) {
             if self.parse_media_query_opt().is_none() {
-                return self.finito(m, ParseError::MediaQueryExpected);
+                self.err_pe(ParseError::MediaQueryExpected);
             }
         }
         self.varnish(m, SyntaxKind::UNDEFINED)
@@ -1101,7 +1111,7 @@ impl Parser<'_> {
             return None
         }
         if self.parse_numeric().is_none() {
-            return Some(self.finito(m, ParseError::NumberExpected));
+            self.err_pe(ParseError::NumberExpected);
         }
         Some(self.varnish(m, SyntaxKind::RATIO_VALUE))
     }
@@ -1119,11 +1129,10 @@ impl Parser<'_> {
 
         while parse_expression {
             if !self.eat(SyntaxKind::L_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::LeftParenthesisExpected,
                     None,
-                    Some(&[SyntaxKind::L_CURLY]),
+                    Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
                 );
             }
             if self.at(SyntaxKind::L_PAREN) || self.at_contextual_token(T![cxid_not]) {
@@ -1134,7 +1143,7 @@ impl Parser<'_> {
             }
             // not yet implemented: general enclosed    <TODO?>
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.finito(m, ParseError::RightParenthesisExpected);
+                self.err_pe(ParseError::RightParenthesisExpected);
             }
             parse_expression = self.eat_contextual_token(T![cxid_and]) || self.eat_contextual_token(T![cxid_or]);
         }
@@ -1142,7 +1151,7 @@ impl Parser<'_> {
     }
 
     pub fn parse_media_feature(&mut self) {
-        let resync_stop_token: Option<&[SyntaxKind]> = Some(&[SyntaxKind::R_PAREN]);
+        let resync_stop_token = Some(TokenSet::new(&[SyntaxKind::R_PAREN]));
 
         let m = self.start();
         // <media-feature> = ( [ <mf-plain> | <mf-boolean> | <mf-range> ] )
@@ -1153,8 +1162,7 @@ impl Parser<'_> {
         if self.parse_media_feature_name().is_some() {
             if self.eat(T![:]) {
                 if self.parse_media_feature_value_opt().is_none() {
-                    return self.fintio_recover(
-                        m,
+                    self.err_resync_pe(
                         ParseError::TermExpected,
                         None,
                         resync_stop_token,
@@ -1162,16 +1170,13 @@ impl Parser<'_> {
                 }
             } else if self.parse_media_feature_range_operator() {
                 if self.parse_media_feature_value_opt().is_none() {
-                    return self.fintio_recover(
-                        m,
+                    self.err_resync_pe(
                         ParseError::TermExpected,
                         None,
                         resync_stop_token,
                     );
-                }
-                if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
-                    return self.fintio_recover(
-                        m,
+                } else if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
+                    self.err_resync_pe(
                         ParseError::TermExpected,
                         None,
                         resync_stop_token,
@@ -1182,33 +1187,26 @@ impl Parser<'_> {
             }
         } else if self.parse_media_feature_value_opt().is_some() {
             if !self.parse_media_feature_range_operator() {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::OperatorExpected,
                     None,
                     resync_stop_token,
                 );
-            }
-            if self.parse_media_feature_name().is_none() {
-                return self.fintio_recover(
-                    m,
+            } else if self.parse_media_feature_name().is_none() {
+                self.err_resync_pe(
                     ParseError::IdentifierExpected,
                     None,
                     resync_stop_token,
                 );
-            }
-
-            if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
-                return self.fintio_recover(
-                    m,
+            } else if self.parse_media_feature_range_operator() && self.parse_media_feature_value_opt().is_none() {
+                self.err_resync_pe(
                     ParseError::TermExpected,
                     None,
                     resync_stop_token,
                 );
             }
         } else {
-            return self.fintio_recover(
-                m,
+            self.err_resync_pe(
                 ParseError::IdentifierExpected,
                 None,
                 resync_stop_token,
@@ -1264,7 +1262,7 @@ impl Parser<'_> {
         if self.parse_page_selector_opt().is_some() {
             while self.eat(T![,]) {
                 if self.parse_page_selector_opt().is_none() {
-                    return Some(self.finito(m, ParseError::IdentifierExpected))
+                    self.err_pe(ParseError::IdentifierExpected);
                 }
             }
         }
@@ -1279,10 +1277,10 @@ impl Parser<'_> {
         }
         let m = self.start();
         if !self.eat(T![@margin_at_rule]) {
-            self.fintio_recover_nested_error(
+            self.err_resync_pe(
                 ParseError::UnknownAtRule,
-                Some(&[]),
-                Some(&[SyntaxKind::L_CURLY]),
+                Some(TokenSet::new(&[])),
+                Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
             );
         }
         self.parse_body(|s: &mut Self| s.parse_rule_set_declaration_opt());
@@ -1298,7 +1296,7 @@ impl Parser<'_> {
         let m = self.start();
         self.parse_ident_opt(None); // optional ident
         if self.eat(T![:]) && self.parse_ident_opt(None).is_none() {
-            return Some(self.finito(m, ParseError::IdentifierExpected));
+            self.err_pe(ParseError::IdentifierExpected);
         }
         Some(self.varnish(m, SyntaxKind::UNDEFINED))
     }
@@ -1310,7 +1308,10 @@ impl Parser<'_> {
         }
         let m = self.start();
         self.bump_any();
-        self.resync(&[], &[SyntaxKind::L_CURLY]); // ignore all the rules
+        while self.current() != SyntaxKind::L_CURLY {
+            // ignore all rules
+            self.bump_any();
+        }
         self.parse_body(|s: &mut Self| s.parse_stylesheet_statement_opt(false));
         Some(self.varnish(m, SyntaxKind::DOCUMENT))
     }
@@ -1359,11 +1360,10 @@ impl Parser<'_> {
                 self.parse_media_feature();
             }
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
                     None,
-                    Some(&[SyntaxKind::L_CURLY]),
+                    Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
                 );
             }
         } else if self.eat_contextual_token(T![cxfunc_style]) {
@@ -1377,19 +1377,17 @@ impl Parser<'_> {
             // }
             self.parse_style_query();
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
                     None,
-                    Some(&[SyntaxKind::L_CURLY]),
+                    Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
                 );
             }
         } else {
-            return self.fintio_recover(
-                m,
+            self.err_resync_pe(
                 ParseError::LeftParenthesisExpected,
                 None,
-                Some(&[SyntaxKind::L_CURLY]),
+                Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
             );
         }
         self.varnish(m, SyntaxKind::UNDEFINED)
@@ -1427,19 +1425,17 @@ impl Parser<'_> {
         if self.eat(SyntaxKind::L_PAREN) {
             self.parse_style_query();
             if !self.eat(SyntaxKind::R_PAREN) {
-                return self.fintio_recover(
-                    m,
+                self.err_resync_pe(
                     ParseError::RightParenthesisExpected,
                     None,
-                    Some(&[SyntaxKind::L_CURLY]),
+                    Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
                 );
             }
         } else {
-            return self.fintio_recover(
-                m,
+            self.err_resync_pe(
                 ParseError::LeftParenthesisExpected,
                 None,
-                Some(&[SyntaxKind::L_CURLY]),
+                Some(TokenSet::new(&[SyntaxKind::L_CURLY])),
             );
         }
         self.varnish(m, SyntaxKind::UNDEFINED)
@@ -1471,24 +1467,20 @@ impl Parser<'_> {
                     }
                 }
                 SyntaxKind::EOF => {
-                    return Some(if curly_dep > 0 {
-                        self.finito(
-                            m,
+                    if curly_dep > 0 {
+                        self.err_pe(
                             ParseError::RightCurlyExpected
-                        )
+                        );
                     } else if bracks_dep > 0 {
-                        self.finito(
-                            m,
+                        self.err_pe(
                             ParseError::RightSquareBracketExpected
-                        )
+                        );
                     } else if parens_dep > 0 {
-                        self.finito(
-                            m,
+                        self.err_pe(
                             ParseError::RightParenthesisExpected
-                        )
-                    } else {
-                        return Some(self.varnish(m, SyntaxKind::UNKNOWN_AT_RULE))
-                    })
+                        );
+                    }
+                    return Some(self.varnish(m, SyntaxKind::UNKNOWN_AT_RULE))
                 }
                 SyntaxKind::L_CURLY => {
                     curly_l_count += 1;
@@ -1500,15 +1492,15 @@ impl Parser<'_> {
                     if curly_l_count > 0 && curly_dep == 0 {
                         self.bump(SyntaxKind::R_CURLY);
                         if bracks_dep > 0 {
-                            return Some(self.finito(
-                                m,
+                            self.err_pe(
                                 ParseError::RightSquareBracketExpected
-                            ));
+                            );
+                            break;
                         } else if parens_dep > 0 {
-                            return Some(self.finito(
-                                m,
+                            Some(self.err_pe(
                                 ParseError::RightParenthesisExpected
                             ));
+                            break;
                         }
                         break;
                     }
@@ -1518,10 +1510,10 @@ impl Parser<'_> {
                         if parens_dep == 0 && bracks_dep == 0 {
                             break;
                         }
-                        return Some(self.finito(
-                            m,
+                        self.err_pe(
                             ParseError::LeftCurlyExpected
-                        ));
+                        );
+                        break;
                     }
                 }
                 SyntaxKind::L_PAREN |
@@ -1531,10 +1523,10 @@ impl Parser<'_> {
                 SyntaxKind::R_PAREN => {
                     parens_dep -= 1;
                     if parens_dep < 0 {
-                        return Some(self.finito(
-                            m,
+                        self.err_pe(
                             ParseError::LeftParenthesisExpected
-                        ));
+                        );
+                        break;
                     }
                 }
                 SyntaxKind::L_BRACK => {
@@ -1543,10 +1535,9 @@ impl Parser<'_> {
                 SyntaxKind::R_BRACK => {
                     bracks_dep -= 1;
                     if bracks_dep < 0 {
-                        return Some(self.finito(
-                            m,
+                        self.err_pe(
                             ParseError::LeftSquareBracketExpected
-                        ));
+                        );
                     }
                 }
                 _ => {}
@@ -1694,7 +1685,7 @@ impl Parser<'_> {
         let m = self.start();
         self.bump_any(); // `.`
         if self.has_whitespace() || self.parse_selector_ident().is_none() {
-            return Some(self.finito(m, ParseError::IdentifierExpected));
+            self.err_pe(ParseError::IdentifierExpected);
         }
         Some(self.varnish(m, SyntaxKind::SELECTOR_CLASS))
     }
@@ -1737,7 +1728,7 @@ impl Parser<'_> {
         self.parse_namespace_prefix(); // optional attribute namespace
 
         if self.parse_ident_opt(None).is_none() {
-            return Some(self.finito(m, ParseError::IdentifierExpected))
+            self.err_pe(ParseError::IdentifierExpected);
         }
 
         if self.parse_operator_opt().is_some() {
@@ -1747,10 +1738,9 @@ impl Parser<'_> {
         }
 
         if !self.eat(SyntaxKind::R_BRACK) {
-            return Some(self.finito(
-                m,
+            self.err_pe(
                 ParseError::RightSquareBracketExpected
-            ))
+            );
         }
         Some(self.varnish(m, SyntaxKind::SELECTOR_ATTRIBUTE))
     }
@@ -1788,10 +1778,10 @@ impl Parser<'_> {
                     self.eat(T![number]);
                 };
                 if self.eat_contextual_token(T![cxid_of]) && try_as_selector(self).is_none() {
-                    return Some(self.finito(m, ParseError::SelectorExpected))
+                    self.err_pe(ParseError::SelectorExpected);
                 }
                 if !self.eat(SyntaxKind::R_PAREN) {
-                    return Some(self.finito(m, ParseError::RightParenthesisExpected))
+                    self.err_pe(ParseError::RightParenthesisExpected);
                 }
                 return Some(self.varnish(m, SyntaxKind::SELECTOR_PSEUDO))
             }
@@ -1801,11 +1791,11 @@ impl Parser<'_> {
             if !has_selector && self.parse_binary_expr().is_some() && 
                 self.eat_contextual_token(T![cxid_of]) && try_as_selector(self).is_none() 
             {
-                return Some(self.finito(m, ParseError::SelectorExpected))
+                self.err_pe(ParseError::SelectorExpected);
             }
 
             if !self.eat(SyntaxKind::R_PAREN) {
-                return Some(self.finito(m, ParseError::RightParenthesisExpected))
+                self.err_pe(ParseError::RightParenthesisExpected);
             }
         }
         Some(self.varnish(m, SyntaxKind::SELECTOR_PSEUDO))
@@ -1823,12 +1813,14 @@ impl Parser<'_> {
         }
         self.eat(T![:]); // support ::
         if self.has_whitespace() {
-            self.finito(m, ParseError::IdentifierExpected); // TODO: better error: pseudo selector expected
+            self.err_pe(ParseError::IdentifierExpected); // TODO: better error: pseudo selector expected
+            m.abandon(self);
             return Some(None)
         }
         let ident = self.parse_ident_opt(None).is_some();
         if !ident && !self.eat(T![function]) {
-            self.finito(m, ParseError::IdentifierExpected);
+            self.err_pe(ParseError::IdentifierExpected);
+            m.abandon(self);
             return Some(None)
         }
         m.abandon(self);
@@ -1895,10 +1887,7 @@ impl Parser<'_> {
             // loop
         }
         if !self.eat(SyntaxKind::R_BRACK) {
-            return Some(self.finito(
-                m,
-                ParseError::RightSquareBracketExpected
-            ))
+            self.err_pe(ParseError::RightSquareBracketExpected);
         }
         Some(self.varnish(m, SyntaxKind::GRID_LINE))
     }
@@ -1924,7 +1913,7 @@ impl Parser<'_> {
         }
     
         if self.parse_term().is_none() {
-            return Some(self.finito(m, ParseError::TermExpected))
+            self.err_pe(ParseError::TermExpected);
         }
 
         //  multiple binary expressions
@@ -1974,7 +1963,7 @@ impl Parser<'_> {
         self.bump_any(); // '('
         self.parse_expr_opt(false);
         if !self.eat(SyntaxKind::R_PAREN) {
-            return Some(self.finito(m, ParseError::RightParenthesisExpected))
+            self.err_pe(ParseError::RightParenthesisExpected);
         }
         Some(self.varnish(m, SyntaxKind::UNDEFINED))
     }
@@ -2014,7 +2003,7 @@ impl Parser<'_> {
             self.bump_any(); // url(
             self.bump_any(); // string / badstring
             if !self.eat(SyntaxKind::R_PAREN) {
-                return Some(self.finito(m, ParseError::RightParenthesisExpected))
+                self.err_pe(ParseError::RightParenthesisExpected);
             }
         }
         Some(self.varnish(m, SyntaxKind::URI_LITERAL))
@@ -2103,7 +2092,7 @@ impl Parser<'_> {
         }
 
         if !self.eat(SyntaxKind::R_PAREN) {
-            return Some(self.finito(m, ParseError::RightParenthesisExpected))
+            self.err_pe(ParseError::RightParenthesisExpected);
         }
 
 
