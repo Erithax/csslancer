@@ -48,6 +48,7 @@ struct ReplRanges {
     pub del_range: std::ops::Range<usize>,
     pub repl_range: std::ops::Range<usize>,
     pub repl_text: String,
+    pub del_text: String,
 }
 
 
@@ -71,12 +72,12 @@ pub fn init() {
         )
     ));
     println!("CSS SRC PARSED WITHOUT PANIC/PARSE ERROR");
-    for _ in 0..1000 {
-        let mut css = all_css();
-        mutate_ascii(&mut css);
-        parse_source_file_text(&css);
-    }
-    println!("PARSED X MUTATIONS WITHOUT PANIC");
+    // for _ in 0..1000 {
+    //     let mut css = all_css();
+    //     mutate_ascii(&mut css);
+    //     parse_source_file_text(&css);
+    // }
+    // println!("PARSED X MUTATIONS WITHOUT PANIC");
 
     let mut fuzz_errs = 0;
     let mut fuzz_err_dir = std::path::Path::new(file!()).parent().unwrap().to_path_buf();
@@ -90,17 +91,17 @@ pub fn init() {
     const FUZZ_MUTATIONS: usize = 100;
 
     for fuzz_restart in 0..FUZZ_RESTARTS {
-        // TODO let mut css = all_css();
-        let mut css = TYPE_SELECTORS_CSS.to_owned();
+        let mut css = all_css();
         let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
         for _ in 0..FUZZ_MUTATIONS {
-            let (del_range, repl_text) = get_text_mutations(&mut css);
+            let (del_range, repl_range) = get_text_mutations(&mut css);
+            let repl = (&css[repl_range.clone()]).to_owned();
             let prev_css = css.clone();
-            css.replace_range(del_range.clone(), &repl_text);
+            css.replace_range(del_range.clone(), &repl);
 
             let mut parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
             
-            reparsed_src.edit(del_range.clone(), repl_text.clone());
+            reparsed_src.edit(del_range.clone(), repl.clone());
 
             assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
             assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
@@ -135,8 +136,9 @@ pub fn init() {
                 fuzz_err_dir.push(hex.clone() + "_repl");
                 serde_json::to_writer(std::fs::File::create(&fuzz_err_dir).unwrap(), &ReplRanges {
                     del_range: del_range.clone(),
-                    repl_range: del_range.start..repl_text.len(),
-                    repl_text: repl_text.to_string(),
+                    repl_range: repl_range.clone(),
+                    del_text: prev_css[del_range].to_owned(),
+                    repl_text: repl.clone(),
                 }).unwrap();
                 //write!(std::fs::File::create(&fuzz_err_dir).unwrap(), "DELETE: {:?}\n//////////{}/////////\n", del_range, repl_text).unwrap();
                 fuzz_err_dir.pop();
@@ -154,42 +156,43 @@ pub fn retest_fuzz_error(hex_str: &str) {
     fuzz_err_dir.push("fuzz_errors/");
 
     let mut css = String::new();
-    println!("{}", fuzz_err_dir.to_string_lossy());
     std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_css"))).unwrap().read_to_string(&mut css).unwrap();
     
     let mut prev_css = String::new();
     std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_prev_css"))).unwrap().read_to_string(&mut prev_css).unwrap();
-    
+
+    println!("### PREV PARSE");
+    println!("{}", Source::new(Url::from_str("https://localhost/test").unwrap(), &prev_css, -1).parse.fancy_string());
+
     let rangesstuff: ReplRanges = serde_json::from_reader::<std::fs::File, ReplRanges>(std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_repl"))).unwrap()).unwrap().clone();
+    assert_eq!(&prev_css[rangesstuff.repl_range], rangesstuff.repl_text, "internal fuzzer error: item with hex `{hex_str}` repl del part is not valid");
+    assert_eq!(&prev_css[rangesstuff.del_range.clone()], rangesstuff.del_text, "internal fuzzer error: item with hex `{hex_str}` repl repl part is not valid");
+    assert_eq!(css, {let mut a = prev_css.clone(); a.replace_range(rangesstuff.del_range.clone(), &rangesstuff.repl_text); a}, "internal fuzzer error: item with hex `{hex_str}` css, prev_css and repl are not in agreeance.");
 
-    let mut range_str = String::new();
-    std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_repl"))).unwrap().read_to_string(&mut range_str).unwrap();
-    
     let del_range = rangesstuff.del_range;
-    let repl_text = rangesstuff.repl_text;
+    let repl_text = rangesstuff.repl_text.clone();
 
-    let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
+    let mut reparsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &prev_css, -1);
     reparsed_src.edit(del_range.clone(), repl_text.clone());
 
-
-    css.replace_range(del_range.clone(), &repl_text);
+    //css.replace_range(del_range.clone(), &repl_text);
     let parsed_src = Source::new(Url::from_str("https://localhost/test").unwrap(), &css, -1);
-
 
     assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
     assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
-    println!("{}", parsed_src.parse.fancy_string());
-    println!("{}", reparsed_src.parse.fancy_string());
+    println!("### FULLY PARSED \n{}", parsed_src.parse.fancy_string());
+    println!("### INCREMENTALLY REPARSED \n{}", reparsed_src.parse.fancy_string());
     assert_eq!(parsed_src.parse, reparsed_src.parse);
-    println!("Completed reparse of fuzz sample {hex_str} succesfully.");
+    println!("Fuzz sample {hex_str} passed retesting succesfully.");
 }
 
 pub fn mutate_ascii(text: &mut String) {
-    let (del_range, repl_text) = get_text_mutations(text);
-    text.replace_range(del_range, &repl_text);
+    let (del_range, repl_range) = get_text_mutations(text);
+    let repl = (&text[repl_range]).to_owned();
+    text.replace_range(del_range, &repl);
 }
 
-pub fn get_text_mutations(text: &mut String) -> (Range<usize>, String) {
+pub fn get_text_mutations(text: &mut String) -> (Range<usize>, Range<usize>) {
     let chars_num = text.chars().count();
 
     let copy_range_char_start = fastrand::usize(0..chars_num);
@@ -216,9 +219,7 @@ pub fn get_text_mutations(text: &mut String) -> (Range<usize>, String) {
             del_range_idx_end += bytes_size;
         }
     }
-
-    let replace_text = text[copy_range_idx_start..copy_range_idx_end].to_owned();
-    return (del_range_idx_start..del_range_idx_end, replace_text)
+    (del_range_idx_start..del_range_idx_end, copy_range_idx_start..copy_range_idx_end)
 }
 
 pub fn all_css() -> String {

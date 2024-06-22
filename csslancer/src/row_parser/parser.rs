@@ -166,12 +166,14 @@ impl<'t> Parser<'t> {
     #[inline]
     pub(crate) fn has_whitespace(&self) -> bool {
         debug_assert!(self.pos > 0);
+        debug_assert!(self.pos - 1 < self.inp.len());
         self.inp.has_whitespace_after(self.pos-1)
     }
 
     #[inline]
     pub(crate) fn has_n_whitespace(&self, n: usize) -> bool {
         debug_assert!(self.pos > 0);
+        debug_assert!(self.pos - 1 + n < self.inp.len());
         self.inp.has_whitespace_after(self.pos - 1 + n)
     }
 

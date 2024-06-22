@@ -201,13 +201,17 @@ fn reparse_block(
     root: &SyntaxNode,
     edit: &Indel,
 ) -> Option<(GreenNode, Vec<SyntaxError>, TextRange)> {
-    let (child_declarations_node, reparser) = find_reparsable_node(root, edit.delete)?;
-    assert_eq!(SyntaxKind::DECLARATIONS, child_declarations_node.kind());
+    // FIXME: remove this early return, Rust Analyzer makes that work somehow
+    if !is_braced_n_balanced(&lex_to_syn::LexedStr::new(&root.text().to_string())) {
+        return None
+    }
+    //println!("{}", root.text().to_string());
+    let (decls_node, reparser) = find_reparsable_node(root, edit.delete)?;
+    assert_eq!(SyntaxKind::DECLARATIONS, decls_node.kind());
     //let node = child_declarations_node.parent().unwrap();
-    let text = get_text_after_edit(child_declarations_node.clone().into(), edit);
-    let node = child_declarations_node;
+    let text = get_text_after_edit(decls_node.clone().into(), edit);
 
-    let lexed = lex_to_syn::LexedStr::new(text.as_str());
+    let lexed: lex_to_syn::LexedStr = lex_to_syn::LexedStr::new(text.as_str());
     let parser_input = lexed.to_input();
     if !is_braced_n_balanced(&lexed) {
         return None;
@@ -216,8 +220,8 @@ fn reparse_block(
     let tree_traversal = reparser.parse(&parser_input)?;
 
     let (green, new_parser_errors, _eof) = build_tree(lexed, tree_traversal);
-    assert_eq!(<SyntaxKind as Into<u16>>::into(node.kind()), green.kind().0);
-    Some((node.replace_with(green), new_parser_errors, node.text_range()))
+    assert_eq!(<SyntaxKind as Into<u16>>::into(decls_node.kind()), green.kind().0);
+    Some((decls_node.replace_with(green), new_parser_errors, decls_node.text_range()))
 }
 
 fn get_text_after_edit(element: SyntaxElement, edit: &Indel) -> String {
@@ -277,6 +281,7 @@ fn is_braced_n_balanced(lexed: &lex_to_syn::LexedStr<'_>) -> bool {
     balance == 0
 }
 
+/// `range_before_reparse` is text range of declarations node that was reparsed in original text
 fn merge_errors(
     old_errors: impl IntoIterator<Item = SyntaxError>,
     new_errors: Vec<SyntaxError>,

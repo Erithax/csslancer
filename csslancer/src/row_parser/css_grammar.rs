@@ -350,7 +350,9 @@ impl Parser<'_> {
             }
         }
         if !self.eat(SyntaxKind::R_CURLY) {
-            self.err_resync_pe(ParseError::RightCurlyExpected, Some(TokenSet::new(&[SyntaxKind::R_CURLY, T![;]])), None);
+            //self.err_resync_pe(ParseError::RightCurlyExpected, Some(TokenSet::new(&[SyntaxKind::R_CURLY, T![;]])), None);
+            // FIXME: testing if this resync causes incremental reparsing errors, above line was the original, below line didn't fix the reparsing
+            self.err_pe(ParseError::RightCurlyExpected);
         }
         m.complete(self, SyntaxKind::DECLARATIONS);
         Some(())

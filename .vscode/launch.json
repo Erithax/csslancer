@@ -36,7 +36,7 @@
     //     "console": true
     // },
     {
-        "name": "(Windows) Launch Cargo Test",
+        "name": "(Windows) Debug Cargo test",
         "type": "cppvsdbg",
         "request": "launch",
         "program": "${workspaceRoot}/target/debug/deps/csslancer-a820feb0d45240ec.exe",
@@ -47,10 +47,21 @@
         "console": "integratedTerminal"
     },
     {
-        "name": "(Windows) Launch Cargo bin fuzz_parser",
+        "name": "(Windows) Debug Cargo bin fuzz_parser",
         "type": "cppvsdbg",
         "request": "launch",
         "program": "${workspaceRoot}/target/debug/fuzz_parser.exe",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceRoot}",
+        "environment": [],
+        "console": "integratedTerminal"
+    },
+    {
+        "name": "(Windows) Debug Cargo bin fuzz_retest_samples",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceRoot}/target/debug/fuzz_retest_samples.exe",
         "args": [],
         "stopAtEntry": false,
         "cwd": "${workspaceRoot}",
