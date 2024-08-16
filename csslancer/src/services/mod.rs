@@ -339,7 +339,6 @@ impl LanguageServer for CssLancerServer {
 
     #[tracing::instrument(skip_all, fields(uri = %params.text_document_position_params.text_document.uri))]
     async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
-        trace!("hover()");
         let url = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         match self.source_read(&url).await {
@@ -347,11 +346,14 @@ impl LanguageServer for CssLancerServer {
                 tracing::error!(%err, %url, "could not handle hover (could not lock source file)");
                 return jsonrpc::Result::Err(jsonrpc::Error::internal_error());
             }
-            Ok(o) => return 
-                self.get_hover(&o, position, &Some(HoverSettings{documentation: true, references: true})).map_err(|err| {
+            Ok(o) => { 
+                let res = self.get_hover(&o, position, &Some(HoverSettings{documentation: true, references: true})).map_err(|err| {
                     error!(%err, %url, "error getting hover");
                     jsonrpc::Error::internal_error()
-                })
+                });
+                warn!("res: {:?}", res);
+                return res
+            }
             ,
         }
     }
@@ -396,6 +398,7 @@ impl LanguageServer for CssLancerServer {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let (tokens, result_id) = self.get_semantic_tokens_full(&src_read_guard);
+        trace!("semantic_tokens_full() end");
         Ok(Some(
             SemanticTokens {
                 result_id: Some(result_id),

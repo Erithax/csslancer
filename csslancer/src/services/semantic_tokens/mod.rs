@@ -167,7 +167,7 @@ fn sem_token_kind_from_syntax_node(syntax_node: &SyntaxNode<CssLanguage>) -> Opt
         | SLASH
         | MINUS
         | EQ => Some(SemTokenKind::Operator),
-        IDENTIFIER => Some(SemTokenKind::Ref),
+        IDENTIFIER => Some(SemTokenKind::Identifier),
         R_CURLY |
         L_CURLY |
         R_PAREN | 

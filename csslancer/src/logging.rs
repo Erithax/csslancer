@@ -4,7 +4,6 @@ use tracing_subscriber::{reload, Registry};
 
 use std::fmt::{self, Write};
 
-use console_subscriber;
 use tokio::runtime::Handle;
 use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
@@ -17,10 +16,6 @@ use tracing_subscriber::Layer;
 
 use crate::services::CssLancerServer;
 
-#[tracing::instrument]
-pub async fn logitgood(msg: &str) {
-    tokio::time::sleep(tokio::time::Duration::from_nanos(100)).await;
-}
 
 pub fn tracing_init() -> (
     reload::Handle<Option<LspLayer>, Registry>,
@@ -28,7 +23,7 @@ pub fn tracing_init() -> (
 ) {
     let (lsp_layer, lsp_layer_handle) = reload::Layer::new(None);
 
-    let console_layer = console_subscriber::spawn();
+    //let console_layer = console_subscriber::spawn();
 
     let chrome_trace_file = std::fs::File::create(format!(
         "D:/CsslancerTrace__{}.json",
@@ -44,12 +39,22 @@ pub fn tracing_init() -> (
 
     tracing_subscriber::registry()
         .with(lsp_layer)
-        .with(console_layer) // INFINITE LOOP IF THIS IS NOT USED!?
+        //.with(console_layer) // INFINITE LOOP IF THIS IS NOT USED!?
         .with(chrome_layer)
         .init();
 
     (lsp_layer_handle, _guard)
 }
+
+// pub fn tracing_init() -> (reload::Handle<Option<LspLayer>, Registry>) {
+//     let (lsp_layer, lsp_layer_handle) = reload::Layer::new(None);
+
+//     tracing_subscriber::registry()
+//         .with(lsp_layer)
+//         .init();
+
+//     (lsp_layer_handle)
+// }
 
 pub fn tracing_shutdown() {}
 
@@ -73,7 +78,7 @@ impl LspLayer {
 
     fn should_skip(event: &Event) -> bool {
         // these events are emitted when logging to client, causing a recursive chain reaction
-        event.metadata().target().contains("codec")
+        event.metadata().target().contains("codec") || event.metadata().target().contains("waker")
     }
 }
 

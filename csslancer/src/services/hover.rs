@@ -35,7 +35,9 @@ impl CssLancerServer {
         };
 
         let offset = client_to_csslancer::position_to_offset(position, position_encoding, src);
+
         trace!(offset = offset);
+
         // node path (leaf first, root last)
         fn get_node_path(sn: SyntaxNode<CssLanguage>, text_size: TextSize) -> Vec<SyntaxNode<CssLanguage>> { 
             let target = match sn.token_at_offset(text_size) {
@@ -53,7 +55,6 @@ impl CssLancerServer {
 
         let np = node_path.clone().into_iter().fold("".to_owned(), |acc, nex| acc + &format!(">{nex:?}"));
         trace!(name: "node path", np = np);
-        println!("{np}");
 
         let mut hover = None;
         let mut flag_opts = None;
@@ -112,7 +113,7 @@ impl CssLancerServer {
                     }
                 }
                 continue;
-            }
+            }   
 
             if syntax_node.kind() == SyntaxKind::UNKNOWN_AT_RULE {
                 trace!("hovering unknown at rule");
@@ -152,6 +153,7 @@ impl CssLancerServer {
             }
         }
         if let Some(ref mut hover) = hover {
+            tracing::warn!("contents: {:?}", hover.contents);
             self.convert_contents(&mut hover.contents);
         }
         Ok(hover)

@@ -8,6 +8,7 @@ use tower_lsp::{LspService, Server};
 #[tokio::main]
 async fn main() {
     let (lsp_tracing_layer_handle, _chrome_trace_guard) = tracing_init();
+    //let (lsp_tracing_layer_handle) = tracing_init();
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();

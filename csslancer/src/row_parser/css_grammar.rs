@@ -1595,7 +1595,7 @@ impl Parser<'_> {
     pub fn parse_combinator_opt(&mut self) -> Option<()> {
         let m = self.start();
         if self.eat(T![>]) {
-            let sk = if !self.has_whitespace() && !self.has_n_whitespace(1) && self.at(T![>]) && self.nth_at(1, T![>]) {
+            let sk = if !self.has_whitespace() && !self.n_within_bounds_and_has_whitespace(1) && self.at(T![>]) && self.nth_at(1, T![>]) {
                 self.bump_any();
                 self.bump_any();
                 SyntaxKind::SELECTOR_COMBINATOR_SHADOW_PIERCING_DESCENDANT

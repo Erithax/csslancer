@@ -34,7 +34,7 @@
 	"contributes": {
 		"languages": [
 			{
-				"id": "csslancer",
+				"id": "css",
 				"aliases": [
 					"CSS",
 					"Css"
@@ -122,7 +122,103 @@
 				"command": "CssLancer.restartServer",
 				"title": "Restart Server"
 			}
-		]
+		],
+		"semanticTokenTypes": [
+            {
+                "id": "escape",
+                "description": "Style for escape"
+            },
+			{
+                "id": "invalidEscape",
+                "description": "Style for invalid char or byte escapes in strings"
+            },
+            {
+                "id": "url",
+                "description": "Style for url",
+				"superType": "string"
+            },
+            {
+                "id": "raw",
+                "description": "Style for raw"
+            },
+			{
+                "id": "punctuation",
+                "description": "Style for punctuation"
+            },
+            {
+                "id": "brace",
+                "description": "Style for { or }",
+                "superType": "punctuation"
+            },
+            {
+                "id": "bracket",
+                "description": "Style for [ or ]",
+                "superType": "punctuation"
+            },
+			{
+                "id": "parenthesis",
+                "description": "Style for ( or )",
+                "superType": "punctuation"
+            },
+            {
+                "id": "colon",
+                "description": "Style for :",
+                "superType": "punctuation"
+            },
+            {
+                "id": "semicolon",
+                "description": "Style for ;",
+				"superType": "punctuation"
+            },
+			{
+                "id": "operator",
+                "description": "Style for operators",
+                "superType": "punctuation"
+            },
+			{
+				"id": "arithmetical",
+				"description": "Style for arithmetic operators",
+				"superType": "operator"
+			},
+            {
+                "id": "logical",
+                "description": "Style for logic operators",
+                "superType": "operator"
+            },
+			{
+                "id": "comparison",
+                "description": "Style for comparison operators",
+                "superType": "operator"
+            },
+            {
+                "id": "unresolvedReference",
+                "description": "Style for names which can not be resolved due to compilation errors"
+            },
+			{
+				"id": "selectorCombinator",
+				"description": "Style for selector combinator"
+			},
+			{
+				"id": "error",
+				"description": "Style for error"
+			},
+			{
+				"id": "property",
+				"description": "Style for property (name)"
+			},
+			{
+				"id": "important",
+				"description": "Style for !important"
+			},
+			{
+				"id": "identifier",
+				"description": "Style for identifier"
+			},
+			{
+				"id": "text",
+				"description": "Style for text"
+			}
+        ]
 	},
 	"scripts": {
 		"_build-base": "tsc -b",

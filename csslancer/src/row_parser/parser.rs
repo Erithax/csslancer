@@ -170,6 +170,14 @@ impl<'t> Parser<'t> {
         self.inp.has_whitespace_after(self.pos-1)
     }
 
+    /// Caller must ensure self.pos - 1 + n is within input
+    #[inline]
+    pub(crate) fn n_within_bounds_and_has_whitespace(&self, n: usize) -> bool {
+        debug_assert!(self.pos > 0);
+        self.pos - 1 + n < self.inp.len() && self.inp.has_whitespace_after(self.pos - 1 + n)
+    }
+
+    /// Caller must ensure self.pos - 1 + n is within input
     #[inline]
     pub(crate) fn has_n_whitespace(&self, n: usize) -> bool {
         debug_assert!(self.pos > 0);
