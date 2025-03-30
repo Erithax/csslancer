@@ -3,13 +3,10 @@
 #![allow(clippy::unit_arg)]
 #![allow(clippy::collapsible_if)]
 
-use ungrammar::Token;
-
 use super::parse_error::ParseError;
 use super::parser::{Parser, Marker};
 use super::syntax_kind_gen::SyntaxKind;
 use super::token_set::TokenSet;
-use super::Parse;
 use crate::T;
 
 pub enum ReferenceType {
@@ -918,7 +915,6 @@ impl Parser<'_> {
         while self.eat(T![,]) {
             if self.parse_layer_name().is_none() {
                 self.err_pe(ParseError::IdentifierExpected); // TODO: more specific parse error
-                return Some(name_count);
             }
             name_count += 1;
         }

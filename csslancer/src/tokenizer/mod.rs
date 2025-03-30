@@ -8,11 +8,13 @@
 /// - TODO:? different behaviour on some parsing errors
 /// - TODO:? extra token kinds like [VSCode CSS Language Service](https://github.com/microsoft/vscode-css-languageservice)
 
-mod cursor;
+pub mod cursor;
 mod test;
 pub mod extra;
 
 use cursor::Cursor;
+use cursor::LexerDiagnostic;
+use cursor::PosedLexerDiagnostic;
 use cursor::EOF_CHAR;
 
 /// Parsed token.
@@ -122,7 +124,6 @@ pub enum TokenKind {
     ///
     /// This token always indicates a parse error.
     BadUrl,
-    ErroneousUrl, // TODO: better way to handle parse errors than this jank
 
     /// [`<bad-string-token>`](https://drafts.csswg.org/css-syntax/#typedef-bad-string-token)
     ///
@@ -204,7 +205,9 @@ pub fn tokenize(input: &str) -> impl Iterator<Item = Token> + '_ {
 }
 
 /// Like `tokenize`, except it allows a `@charset-rule` at the very start of the input.
-pub fn tokenize_file(input: &str) -> impl Iterator<Item = Token> + '_ {
+pub fn tokenize_file<'a, 'b>(input: &'a str, diags: &'b mut Vec<PosedLexerDiagnostic>) -> impl Iterator<Item = Token> + 'a 
+    where 'b : 'a
+{
     let mut cursor = Cursor::new(input);
     let charset = cursor.maybe_consume_charset();
     let first = if charset {
@@ -220,12 +223,43 @@ pub fn tokenize_file(input: &str) -> impl Iterator<Item = Token> + '_ {
 
     let first_is_eof = first.kind == TokenKind::Eof;
 
+    //let cursor_mut = &mut cursor;
     let consumer = move || {
+        let token = cursor.consume_token();
+        diags.append(cursor.mut_diagnostics());
+        if token.kind != TokenKind::Eof {Some(token)} else {None} 
+    };
+    let mut res = std::iter::once(first).chain(std::iter::from_fn(consumer));
+    if first_is_eof {
+        // make sure we return empty iterator instead of one with Eofs
+        res.next(); 
+        res.next();
+    }
+    res
+}
+
+/// Like `tokenize`, except it allows a `@charset-rule` at the very start of the input.
+pub fn tokenize_file_by_cursor<'a>(cursor: &'a mut Cursor<'a>) -> impl Iterator<Item = Token> +'a {
+    let charset = cursor.maybe_consume_charset();
+    let first = if charset {
+        let t = Token {
+            kind: TokenKind::Charset,
+            len: cursor.pos_within_token(),
+        };
+        cursor.reset_pos_within_token();
+        t
+    } else {
+        cursor.consume_token()
+    };
+
+    let first_is_eof = first.kind == TokenKind::Eof;
+
+    //let cursor_mut = &mut cursor;
+    let consumer = || {
         let token = cursor.consume_token();
         if token.kind != TokenKind::Eof {Some(token)} else {None}
     };
     let mut res = std::iter::once(first).chain(std::iter::from_fn(consumer));
-
     if first_is_eof {
         // make sure we return empty iterator instead of one with Eofs
         res.next(); 
@@ -350,6 +384,7 @@ impl Cursor<'_> {
                     self.consume_ident_like()
                 } else {
                     self.bump();
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::UnexpectedSolidus);
                     DelimUnexpectedSolidus
                 },
             c if c.is_ascii_digit() => {
@@ -369,7 +404,7 @@ impl Cursor<'_> {
                     self.consume_ident_like()
                 },
             ',' => {self.bump(); Comma},
-            ':' => {self.bump(); Colon},
+            ':' => {self.bump(); Colon}, 
             ';' => {self.bump(); Semicolon},
             '(' => {self.bump(); OpenParen},
             ')' => {self.bump(); CloseParen},
@@ -384,6 +419,7 @@ impl Cursor<'_> {
         };
         let res = Token::new(token_kind, self.pos_within_token());
         self.reset_pos_within_token();
+        self.token_idx += 1;
         res
     }
 
@@ -402,6 +438,9 @@ impl Cursor<'_> {
             hot = ch == '*';
             true
         });
+        if self.is_eof() {
+            self.emit_diagnostic_for_curr(LexerDiagnostic::UnterminatedCommentFoundEof)
+        }
         debug_assert!(!success || self.first() == '/');
         if success {self.bump();} // consume trailing '/'
         TokenKind::Comment
@@ -418,6 +457,7 @@ impl Cursor<'_> {
     /// Modified to delay bump to avoid reconsumption.
     /// Returns String or BadString
     fn consume_string(&mut self, delimiter: char) -> TokenKind {
+        // TODO : use const generics to monomorphize over <'> and <">, depending on benchmarks
         loop{
             match self.first() {
                 c if c == delimiter => {
@@ -425,11 +465,13 @@ impl Cursor<'_> {
                     return TokenKind::String
                 },
                 EOF_CHAR => {
-                    self.bump();
-                    return TokenKind::BadString
+                    self.bump(); // TODO: really consume it?
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::UnterminatedStringFoundEof);
+                    return TokenKind::String
                 },
                 c if Self::is_new_line_non_preprocessed(c) => {
                     // NO RECONSUME BECAUSE WE DO NOT BUMP IN THE LOOP
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::NewlineInString);
                     return TokenKind::BadString
                 },
                 '\\' => {
@@ -459,7 +501,10 @@ impl Cursor<'_> {
         while let Some(curr) = self.bump() {
             match curr {
                 ')' => return TokenKind::Url,
-                EOF_CHAR => return TokenKind::ErroneousUrl,
+                EOF_CHAR => {
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::UnterminatedUrlFoundEof);
+                    return TokenKind::Url;
+                },
                 c if is_white_space(c) => {
                     self.consume_whitespace();
                     match self.first() {
@@ -468,8 +513,10 @@ impl Cursor<'_> {
                             return TokenKind::Url
                         },
                         EOF_CHAR => {
-                            self.bump();
-                            return TokenKind::ErroneousUrl
+                            self.bump(); // TODO: really consume eof?
+                            self.emit_diagnostic_for_curr(LexerDiagnostic::UnterminatedUrlFoundEof);
+                            // TODO : spec is not clear what to do on EOF
+                            return TokenKind::Url;
                         },
                         _ => {
                             return self.consume_bad_url_remnants()
@@ -477,19 +524,22 @@ impl Cursor<'_> {
                     }
                 },
                 c if c == '"' || c == '\'' || c == '(' || non_printable_char(c) => {
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::UnexpectedCharInUrl);
                     return self.consume_bad_url_remnants()
                 },
                 '\\' => {
                     if Self::is_valid_escape_second_char(self.first()) {
                         self.consume_escaped();
                     } else {
+                        self.emit_diagnostic_for_curr(LexerDiagnostic::UnexpectedCharInUrl);
                         return self.consume_bad_url_remnants()
                     }
                 },
                 _ => {}
             }
         }
-        return TokenKind::ErroneousUrl
+        self.emit_diagnostic_for_curr(LexerDiagnostic::UnterminatedUrlFoundEof);
+        return TokenKind::Url;
     }
 
 
@@ -618,7 +668,6 @@ impl Cursor<'_> {
         } else {
             TokenKind::Ident
         }
-
     }
 
     /// https://drafts.csswg.org/css-syntax/#consume-an-escaped-code-point
@@ -629,6 +678,7 @@ impl Cursor<'_> {
         let curr = self.bump().unwrap_or(EOF_CHAR);
         match curr {
             c if c.is_ascii_hexdigit() => {
+                // TODO: maybe make hex_str a byte array since all the hex chars are ascii (so bytes in utf8)
                 let mut hex_str = String::new();
                 hex_str.push(curr);
                 self.bump_while_first(|ch| {
@@ -641,11 +691,13 @@ impl Cursor<'_> {
                 if is_white_space(self.first()) {self.bump();} 
                 let hex_val: u32 = hex_string_to_num(&hex_str).unwrap();
                 if hex_val == 0 || is_surrogate_unicode_code_point(hex_val) || exceeds_max_unicode_code_point(hex_val) {
-                    todo!("return replacement char?")
+                    self.emit_diagnostic_for_curr(LexerDiagnostic::OutOfNonSurrogateValidUtf8RangeEscapedCodePoint);
                 }
             },
-            EOF_CHAR => todo!("return replacement char? (spec says it's parse error)"),
-            _ => {}
+            EOF_CHAR => {
+                self.emit_diagnostic_for_curr(LexerDiagnostic::EscapedCodePointEncounteredEof);
+            },
+            _ => {},
         }
     }
 

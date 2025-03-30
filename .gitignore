@@ -1,2 +1,6 @@
 target/
 node_modules
+csslancer_bench/blink
+csslancer_bench/blink-css
+csslancer_bench/depot_tools
+csslancer_bench/chromium

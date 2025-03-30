@@ -4,6 +4,35 @@
 
 use std::str::Chars;
 
+use miette::Diagnostic;
+use thiserror::Error;
+
+// TODO? : feature gate miette
+#[derive(Debug, Error, Diagnostic)]
+pub enum LexerDiagnostic {
+    #[error("Oops it blew up")]
+    OutOfNonSurrogateValidUtf8RangeEscapedCodePoint,
+    #[error("Uh no!")]
+    EscapedCodePointEncounteredEof,
+    #[error("Unexpected solidus (forward slash)")]
+    UnexpectedSolidus,
+    #[error("Unterminated comment went into end of file")]
+    UnterminatedCommentFoundEof,
+    #[error("Unterminated string went into end of file")]
+    UnterminatedStringFoundEof,
+    #[error("Newline in string")]
+    NewlineInString,
+    #[error("Unterminated url went into end of file")]
+    UnterminatedUrlFoundEof,
+    #[error("Unexpected character in url")]
+    UnexpectedCharInUrl,
+}
+
+pub struct PosedLexerDiagnostic {
+    pub diagnostic: LexerDiagnostic,
+    pub token_idx: u32,
+}
+
 /// Peekable iterator over a char sequence.
 ///
 /// Next characters can be peeked via `first` method,
@@ -12,6 +41,10 @@ pub struct Cursor<'a> {
     len_remaining: usize,
     /// Iterator over chars. Slightly faster than a &str.
     chars: Chars<'a>,
+    // TODO? : feature gate miette
+    /// Next token will have index `token_idx`
+    pub(crate) token_idx: usize,
+    diagnostics: Vec<PosedLexerDiagnostic>,   
     #[cfg(debug_assertions)]
     prev: char,
 }
@@ -24,9 +57,19 @@ impl<'a> Cursor<'a> {
         Cursor {
             len_remaining: input.len(),
             chars: input.chars(),
+            token_idx: 0,
+            diagnostics: Vec::new(),
             #[cfg(debug_assertions)]
             prev: EOF_CHAR,
         }
+    }
+
+    pub fn emit_diagnostic_for_curr(&mut self, diagnostic: LexerDiagnostic) {
+        self.diagnostics.push(PosedLexerDiagnostic {diagnostic, token_idx: self.token_idx as u32});
+    }
+
+    pub fn emit_diagnostic_for_next(&mut self, diagnostic: LexerDiagnostic) {
+        self.diagnostics.push(PosedLexerDiagnostic {diagnostic, token_idx: self.token_idx as u32 + 1});
     }
 
     // pub fn as_str(&self) -> &'a str {
@@ -46,6 +89,14 @@ impl<'a> Cursor<'a> {
     //         EOF_CHAR
     //     }
     // }
+
+    pub fn take_diagnostics(&mut self) -> Vec<PosedLexerDiagnostic> {
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    pub fn mut_diagnostics(&mut self) -> &mut Vec<PosedLexerDiagnostic> {
+        &mut self.diagnostics
+    }
 
     /// Peeks the next symbol from the input stream without consuming it.
     /// If requested position doesn't exist, `EOF_CHAR` is returned.

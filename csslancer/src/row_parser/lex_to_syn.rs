@@ -1,7 +1,9 @@
 
 
+use std::fmt::Debug;
 use std::ops;
 
+use crate::tokenizer::cursor::PosedLexerDiagnostic;
 use crate::tokenizer::{tokenize_file, TokenKind};
 use crate::T;
 use super::syntax_kind_gen::SyntaxKind;
@@ -10,12 +12,7 @@ pub struct LexedStr<'a> {
     text: &'a str,
     kind: Vec<SyntaxKind>,
     start: Vec<u32>,
-    error: Vec<LexError>,
-}
-
-struct LexError {
-    msg: String,
-    token: u32,
+    error: Vec<PosedLexerDiagnostic>,
 }
 
 impl<'a> LexedStr<'a> {
@@ -27,28 +24,53 @@ impl<'a> LexedStr<'a> {
         //     conv.offset = shebang_len;
         // };
 
-        for token in tokenize_file(&text[conv.offset..]) {
+        let mut diags = Vec::new();
+        
+        let mut tok_count = 0;
+        for token in tokenize_file(text, &mut diags) {
+            tok_count += 1;
             let token_text = &text[conv.offset..][..token.len as usize];
-            conv.extend_token(&token.kind, token_text);
+            conv.extend_token(token.kind, token_text);
         }
 
-        conv.finalize_with_eof()
+        let mut do_panic = false;
+        let l = conv.res.kind.len() as u32;
+        assert_eq!(tok_count, conv.res.kind.len());
+        for diag in diags.iter() {
+            if diag.token_idx >= l {
+                do_panic = true;
+                println!("diag token idx `{}` out of range `{}` : `{}`", diag.token_idx, l, diag.diagnostic.to_string());
+            }
+        }
+        if do_panic {
+            println!("No Bueno {:?}", conv.res.kind.iter().fold(String::new(), |acc, nex| acc + " > " + &format!("{:?}", nex)));
+        }
+
+        let res = conv.finalize_with_eof_and_errs(diags);
+
+        res
     }
 
-    pub fn single_token(text: &'a str) -> Option<(SyntaxKind, Option<String>)> {
+    pub fn single_token(text: &'a str) -> Option<(SyntaxKind, impl IntoIterator<Item = String>)> {
         if text.is_empty() {
             return None;
         }
+        let mut diags = Vec::new();
+        let mut tokens = tokenize_file(text, &mut diags);
+        let token = tokens.next()?;
 
-        let token = tokenize_file(text).next()?;
-        if token.len as usize != text.len() {
+        // have to call next again to write the errors
+        if token.len as usize != text.len() || tokens.next().is_some() {
             return None;
         }
-
+        drop(tokens);
         let mut conv = Converter::new(text);
-        conv.extend_token(&token.kind, text);
+        conv.extend_token(token.kind, text);
         match &*conv.res.kind {
-            [kind] => Some((*kind, conv.res.error.pop().map(|it| it.msg))),
+            [kind] => {
+                //Some((*kind, conv.res.error.into_iter().map(|it| it.diagnostic.to_string())))
+                Some((*kind, diags.into_iter().map(|diag| diag.diagnostic.to_string())))
+            }
             _ => None,
         }
     }
@@ -83,7 +105,7 @@ impl<'a> LexedStr<'a> {
 
     // Naming is hard.
     pub fn text_range(&self, i: usize) -> ops::Range<usize> {
-        assert!(i < self.len());
+        assert!(i < self.len(), "tried to get text range of token idx `{}` out of range (len = {})", i, self.len());
         let lo = self.start[i] as usize;
         let hi = self.start[i + 1] as usize;
         lo..hi
@@ -98,14 +120,15 @@ impl<'a> LexedStr<'a> {
         r.end - r.start
     }
 
-    pub fn error(&self, i: usize) -> Option<&str> {
+    // FIXME: return slice of errors
+    pub fn error(&self, i: usize) -> Option<String> {
         assert!(i < self.len());
-        let err = self.error.binary_search_by_key(&(i as u32), |i| i.token).ok()?;
-        Some(self.error[err].msg.as_str())
+        let err = self.error.binary_search_by_key(&(i as u32), |i| i.token_idx).ok()?;
+        Some(self.error[err].diagnostic.to_string())
     }
 
-    pub fn errors(&self) -> impl Iterator<Item = (usize, &str)> + '_ {
-        self.error.iter().map(|it| (it.token as usize, it.msg.as_str()))
+    pub fn errors(&self) -> impl Iterator<Item = (usize, String)> + '_ {
+        self.error.iter().map(|it| (it.token_idx as usize, it.diagnostic.to_string()))
     }
 
     fn push(&mut self, kind: SyntaxKind, offset: usize) {
@@ -115,7 +138,7 @@ impl<'a> LexedStr<'a> {
 }
 
 struct Converter<'a> {
-    res: LexedStr<'a>,
+    pub res: LexedStr<'a>,
     offset: usize,
 }
 
@@ -127,28 +150,22 @@ impl<'a> Converter<'a> {
         }
     }
 
-    fn finalize_with_eof(mut self) -> LexedStr<'a> {
+    fn finalize_with_eof_and_errs(mut self, diagnostics: Vec<PosedLexerDiagnostic>) -> LexedStr<'a> {
         self.res.push(SyntaxKind::EOF, self.offset);
+        self.res.error = diagnostics;
         self.res
     }
 
-    fn push(&mut self, kind: SyntaxKind, len: usize, err: Option<&str>) {
+    fn push(&mut self, kind: SyntaxKind, len: usize) {
         self.res.push(kind, self.offset);
         self.offset += len;
-
-        if let Some(err) = err {
-            let token = self.res.len() as u32;
-            let msg = err.to_owned();
-            self.res.error.push(LexError { msg, token });
-        }
     }
 
-    fn extend_token(&mut self, kind: &TokenKind, token_text: &str) {
+    fn extend_token(&mut self, kind: TokenKind, token_text: &str) {
         // A note on an intended tradeoff:
         // We drop some useful information here (see patterns with double dots `..`)
         // Storing that info in `SyntaxKind` is not possible due to its layout requirements of
         // being `u16` that come from `rowan::SyntaxKind`.
-        let err = "";
 
         let syntax_kind = {
             match kind {
@@ -159,7 +176,6 @@ impl<'a> Converter<'a> {
                 TokenKind::Url => T![url],
                 TokenKind::Number => T![number],
                 TokenKind::UnicodeRange => T![unicode_range],
-                TokenKind::ErroneousUrl => T![bad_url], // todo?
                 TokenKind::BadUrl => T![bad_url],
                 TokenKind::BadString => T![bad_string],
                 TokenKind::UnrestrictedHash => T![unrestricted_hash],
@@ -276,169 +292,7 @@ impl<'a> Converter<'a> {
             }
         };
 
-        let err = if err.is_empty() { None } else { Some(err) };
-        self.push(syntax_kind, token_text.len(), err);
+        self.push(syntax_kind, token_text.len());
     }
 
-    // fn extend_literal(&mut self, len: usize, kind: &LiteralKind) {
-    //     let mut err = "";
-
-    //     let syntax_kind = match *kind {
-    //         LiteralKind::Int { empty_int, base: _ } => {
-    //             if empty_int {
-    //                 err = "Missing digits after the integer base prefix";
-    //             }
-    //             INT_NUMBER
-    //         }
-    //         LiteralKind::Float { empty_exponent, base: _ } => {
-    //             if empty_exponent {
-    //                 err = "Missing digits after the exponent symbol";
-    //             }
-    //             FLOAT_NUMBER
-    //         }
-    //         LiteralKind::Char { terminated } => {
-    //             if !terminated {
-    //                 err = "Missing trailing `'` symbol to terminate the character literal";
-    //             } else {
-    //                 let text = &self.res.text[self.offset + 1..][..len - 1];
-    //                 let i = text.rfind('\'').unwrap();
-    //                 let text = &text[..i];
-    //                 if let Err(e) = unescape::unescape_char(text) {
-    //                     err = error_to_diagnostic_message(e, Mode::Char);
-    //                 }
-    //             }
-    //             CHAR
-    //         }
-    //         LiteralKind::Byte { terminated } => {
-    //             if !terminated {
-    //                 err = "Missing trailing `'` symbol to terminate the byte literal";
-    //             } else {
-    //                 let text = &self.res.text[self.offset + 2..][..len - 2];
-    //                 let i = text.rfind('\'').unwrap();
-    //                 let text = &text[..i];
-    //                 if let Err(e) = unescape::unescape_byte(text) {
-    //                     err = error_to_diagnostic_message(e, Mode::Byte);
-    //                 }
-    //             }
-
-    //             BYTE
-    //         }
-    //         LiteralKind::Str { terminated } => {
-    //             if !terminated {
-    //                 err = "Missing trailing `\"` symbol to terminate the string literal";
-    //             } else {
-    //                 let text = &self.res.text[self.offset + 1..][..len - 1];
-    //                 let i = text.rfind('"').unwrap();
-    //                 let text = &text[..i];
-    //                 err = unescape_string_error_message(text, Mode::Str);
-    //             }
-    //             STRING
-    //         }
-    //         LiteralKind::ByteStr { terminated } => {
-    //             if !terminated {
-    //                 err = "Missing trailing `\"` symbol to terminate the byte string literal";
-    //             } else {
-    //                 let text = &self.res.text[self.offset + 2..][..len - 2];
-    //                 let i = text.rfind('"').unwrap();
-    //                 let text = &text[..i];
-    //                 err = unescape_string_error_message(text, Mode::ByteStr);
-    //             }
-    //             BYTE_STRING
-    //         }
-    //         LiteralKind::CStr { terminated } => {
-    //             if !terminated {
-    //                 err = "Missing trailing `\"` symbol to terminate the string literal";
-    //             } else {
-    //                 let text = &self.res.text[self.offset + 2..][..len - 2];
-    //                 let i = text.rfind('"').unwrap();
-    //                 let text = &text[..i];
-    //                 err = unescape_string_error_message(text, Mode::CStr);
-    //             }
-    //             C_STRING
-    //         }
-    //         LiteralKind::RawStr { n_hashes } => {
-    //             if n_hashes.is_none() {
-    //                 err = "Invalid raw string literal";
-    //             }
-    //             STRING
-    //         }
-    //         LiteralKind::RawByteStr { n_hashes } => {
-    //             if n_hashes.is_none() {
-    //                 err = "Invalid raw string literal";
-    //             }
-    //             BYTE_STRING
-    //         }
-    //         LiteralKind::RawCStr { n_hashes } => {
-    //             if n_hashes.is_none() {
-    //                 err = "Invalid raw string literal";
-    //             }
-    //             C_STRING
-    //         }
-    //     };
-
-    //     let err = if err.is_empty() { None } else { Some(err) };
-    //     self.push(syntax_kind, len, err);
-    // }
 }
-
-// fn error_to_diagnostic_message(error: EscapeError, mode: Mode) -> &'static str {
-//     match error {
-//         EscapeError::ZeroChars => "empty character literal",
-//         EscapeError::MoreThanOneChar => "character literal may only contain one codepoint",
-//         EscapeError::LoneSlash => "",
-//         EscapeError::InvalidEscape if mode == Mode::Byte || mode == Mode::ByteStr => {
-//             "unknown byte escape"
-//         }
-//         EscapeError::InvalidEscape => "unknown character escape",
-//         EscapeError::BareCarriageReturn => "",
-//         EscapeError::BareCarriageReturnInRawString => "",
-//         EscapeError::EscapeOnlyChar if mode == Mode::Byte => "byte constant must be escaped",
-//         EscapeError::EscapeOnlyChar => "character constant must be escaped",
-//         EscapeError::TooShortHexEscape => "numeric character escape is too short",
-//         EscapeError::InvalidCharInHexEscape => "invalid character in numeric character escape",
-//         EscapeError::OutOfRangeHexEscape => "out of range hex escape",
-//         EscapeError::NoBraceInUnicodeEscape => "incorrect unicode escape sequence",
-//         EscapeError::InvalidCharInUnicodeEscape => "invalid character in unicode escape",
-//         EscapeError::EmptyUnicodeEscape => "empty unicode escape",
-//         EscapeError::UnclosedUnicodeEscape => "unterminated unicode escape",
-//         EscapeError::LeadingUnderscoreUnicodeEscape => "invalid start of unicode escape",
-//         EscapeError::OverlongUnicodeEscape => "overlong unicode escape",
-//         EscapeError::LoneSurrogateUnicodeEscape => "invalid unicode character escape",
-//         EscapeError::OutOfRangeUnicodeEscape => "invalid unicode character escape",
-//         EscapeError::UnicodeEscapeInByte => "unicode escape in byte string",
-//         EscapeError::NonAsciiCharInByte if mode == Mode::Byte => {
-//             "non-ASCII character in byte literal"
-//         }
-//         EscapeError::NonAsciiCharInByte if mode == Mode::ByteStr => {
-//             "non-ASCII character in byte string literal"
-//         }
-//         EscapeError::NonAsciiCharInByte => "non-ASCII character in raw byte string literal",
-//         EscapeError::NulInCStr => "null character in C string literal",
-//         EscapeError::UnskippedWhitespaceWarning => "",
-//         EscapeError::MultipleSkippedLinesWarning => "",
-//     }
-// }
-
-// fn unescape_string_error_message(text: &str, mode: Mode) -> &'static str {
-//     let mut error_message = "";
-//     match mode {
-//         Mode::CStr => {
-//             unescape::unescape_mixed(text, mode, &mut |_, res| {
-//                 if let Err(e) = res {
-//                     error_message = error_to_diagnostic_message(e, mode);
-//                 }
-//             });
-//         }
-//         Mode::ByteStr | Mode::Str => {
-//             unescape::unescape_unicode(text, mode, &mut |_, res| {
-//                 if let Err(e) = res {
-//                     error_message = error_to_diagnostic_message(e, mode);
-//                 }
-//             });
-//         }
-//         _ => {
-//             // Other Modes are not supported yet or do not apply
-//         }
-//     }
-//     error_message
-// }

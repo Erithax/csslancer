@@ -33,10 +33,10 @@ fn cx_hash(s: &str) -> Option<SyntaxKind> {
         Some('#') => {},
         None => return None,
         _ => return None,
-    }
+    };
     let mut count = 0;
     for c in chars {
-        if !c.is_ascii_hexdigit() {
+        if !c.is_ascii_hexdigit() {   
             return None
         }
         count += 1;

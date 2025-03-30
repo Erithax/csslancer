@@ -126,17 +126,20 @@ impl DeclarationsReparser {
 }
 
 pub(crate) fn incremental_reparse(
-    node: &SyntaxNode,
+    root: &SyntaxNode,
     edit: &Indel,
     errors: impl IntoIterator<Item = SyntaxError>,
 ) -> Option<(GreenNode, Vec<SyntaxError>, TextRange)> {
-    if let Some((green, new_errors, old_range)) = reparse_token(node, edit) {
+    if let Some((green, new_errors, old_range)) = reparse_token(root, edit) {
+        // ln!("reparsed token");
+        // priprintntln!("token after reparse {:?}, {:?}", green.kind(), green.text_len());
         return Some((green, merge_errors(errors, new_errors, old_range, edit), old_range));
     }
 
     if let Some((green, new_errors, old_range)) =
-        reparse_block(node, edit)
+        reparse_block(root, edit)
     {
+        // println!("reparsed block");
         return Some((green, merge_errors(errors, new_errors, old_range, edit), old_range));
     }
     None
@@ -152,7 +155,7 @@ fn reparse_token(
         root.text_range(),
         edit.delete,
     );
-    let prev_token = root.covering_element(edit.delete).as_token()?.clone();
+    let prev_token= root.covering_element(edit.delete).as_token()?.clone();
     let prev_token_kind = prev_token.kind();
     match prev_token_kind {
         SyntaxKind::WHITESPACE | SyntaxKind::COMMENT | SyntaxKind::IDENTIFIER | SyntaxKind::STRING | SyntaxKind::BAD_STRING | SyntaxKind::URL | SyntaxKind::BAD_URL => {
@@ -240,8 +243,9 @@ fn get_text_after_edit(element: SyntaxElement, edit: &Indel) -> String {
     text
 }
 
-fn is_contextual_kw(text: &str) -> bool {
-    matches!(text, "auto" | "default" | "union")
+fn is_contextual_kw(_text: &str) -> bool {
+    // FIXME
+    false
 }
 
 fn find_reparsable_node(node: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, DeclarationsReparser)> {
@@ -289,15 +293,26 @@ fn merge_errors(
     edit: &Indel,
 ) -> Vec<SyntaxError> {
     let mut res = Vec::new();
-
+    let old_errors = old_errors.into_iter().collect::<Vec<SyntaxError>>();
+    // println!("old_errors: {:?}", old_errors);
+    // println!("new_errors: {:?}", new_errors);
+    // println!("range before reparse {:?} {:?}", range_before_reparse.start(), range_before_reparse.end());
+    // println!("deleted (ref-pre) {:?} {:?}", edit.delete, edit.insert.len());
+    // println!("insert  (ref-post) {:?}..{:?}", edit.delete.start(), edit.delete.start().checked_add(TextSize::new(edit.insert.len() as u32)).unwrap());
+    // println!("new text: {:?}..{:?}", edit.delete.start(), edit.delete.start() + TextSize::new(edit.insert.len() as u32));
     for old_err in old_errors {
         let old_err_range = old_err.range();
         if old_err_range.end() <= range_before_reparse.start() {
+            // println!("merging err(1): {} ({:?}->{:?}); range before reparse: ({:?}->{:?})", old_err, old_err_range.start(), old_err_range.end(), range_before_reparse.start(), range_before_reparse.end());
+
             res.push(old_err);
         } else if old_err_range.start() >= range_before_reparse.end() {
+            // println!("merging err(2): {} ({:?}->{:?}); range before reparse: ({:?}->{:?})", old_err, old_err_range.start(), old_err_range.end(), range_before_reparse.start(), range_before_reparse.end());
             let inserted_len = TextSize::of(&edit.insert);
             res.push(old_err.with_range((old_err_range + inserted_len) - edit.delete.len()));
             // Note: extra parens are intentional to prevent uint underflow, HWAB (here was a bug)
+        } else {
+            // println!("no merge old err: {} ({:?}->{:?}); range before reparse: ({:?}->{:?})", old_err, old_err_range.start(), old_err_range.end(), range_before_reparse.start(), range_before_reparse.end());
         }
     }
     res.extend(new_errors.into_iter().map(|new_err| {

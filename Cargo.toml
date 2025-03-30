@@ -1,5 +1,5 @@
 [workspace]
 resolver = "2"
 members = [
-  "csslancer", "csslancer_macro",
+  "csslancer", "csslancer_bench", "csslancer_macro",
 ]

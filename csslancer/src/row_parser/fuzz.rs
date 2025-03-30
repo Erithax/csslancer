@@ -32,16 +32,16 @@ coolorlue;
 ```
 */
 
-use std::{io::{Read, Write}, ops::Range, str::FromStr};
+use std::{any::Any, io::{Read, Write}, ops::Range, str::FromStr};
 
-use futures::stream::FusedStream;
 use lsp_types::Url;
+use miette::Diagnostic;
 use rowan::TextSize;
 use serde::{Deserialize, Serialize};
 
-use crate::{row_parser::fuzz, workspace::source::Source};
+use crate::{tokenizer::{self, cursor::PosedLexerDiagnostic, Token, TokenKind}, workspace::source::Source};
 
-use super::parse_source_file_text;
+use super::{nodes_types::SyntaxToken, parse_source_file_text, syntax_error::SyntaxError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReplRanges {
@@ -151,6 +151,50 @@ pub fn init() {
     }
 }
 
+
+// TODO cfg(fuzz)
+pub fn pretty_tokens<'a, T>(toks: T) -> String
+  where T: Iterator<Item = &'a Token> 
+{
+  let mut toks_s = String::new();
+  let mut curr_tok_offset = 0;
+  for tok in toks.into_iter() {
+    toks_s += &format!("{:?}({}..{}) ", tok.kind, curr_tok_offset, curr_tok_offset + tok.len);
+    curr_tok_offset += tok.len;
+  }
+  toks_s
+}
+
+// TODO cfg(fuzz)
+pub fn pretty_syntax_tokens<'a, T>(toks: T) -> String
+  where T: Iterator<Item = &'a SyntaxToken> 
+{
+  let mut toks_s = String::new();
+  let mut curr_tok_offset = 0;
+  for tok in toks.into_iter() {
+    toks_s += &format!("{:?}({}..{}) ", tok.kind(), curr_tok_offset, curr_tok_offset + <TextSize as Into<u32>>::into(tok.text_range().len().into()));
+    curr_tok_offset += <TextSize as Into<u32>>::into(tok.text_range().len());
+  }
+  toks_s
+}
+
+// TODO cfg(fuzz)
+pub fn lexer_diag_txt_range<'a, T>(toks: T, diag: &PosedLexerDiagnostic) -> (u32, u32)
+  where T: Iterator<Item = &'a Token>
+{
+  let mut curr_tok_offset = 0;
+  let mut curr_tok_idx = 0;
+  for tok in toks.into_iter() {
+    if diag.token_idx == curr_tok_idx {
+      return (curr_tok_offset,   curr_tok_offset + tok.len)
+    }
+    curr_tok_offset += tok.len;
+    curr_tok_idx += 1;
+  }
+  unreachable!()
+}
+
+
 pub fn retest_fuzz_error(hex_str: &str) {
     let mut fuzz_err_dir = std::path::Path::new(file!()).parent().unwrap().to_path_buf();
     fuzz_err_dir.push("fuzz_errors/");
@@ -162,6 +206,14 @@ pub fn retest_fuzz_error(hex_str: &str) {
     std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_prev_css"))).unwrap().read_to_string(&mut prev_css).unwrap();
 
     println!("### PREV PARSE");
+    let mut lexer_diags = Vec::new();
+    let toks = tokenizer::tokenize_file(&prev_css, &mut lexer_diags).map(|t| t).collect::<Vec<Token>>();
+    println!("toks: {}\nerrs: {:?}", 
+      pretty_tokens(toks.iter()), 
+      lexer_diags.iter().map(|d| 
+        d.diagnostic.to_string() + " " + &format!("{}..{}", lexer_diag_txt_range(toks.iter(), d).0, lexer_diag_txt_range(toks.iter(), d).1) + 
+        "```" + &prev_css[lexer_diag_txt_range(toks.iter(), d).0 as usize .. lexer_diag_txt_range(toks.iter(), d).1 as usize] + "```"
+      ).collect::<Vec<String>>());
     println!("{}", Source::new(Url::from_str("https://localhost/test").unwrap(), &prev_css, -1).parse.fancy_string());
 
     let rangesstuff: ReplRanges = serde_json::from_reader::<std::fs::File, ReplRanges>(std::fs::File::open(fuzz_err_dir.join(format!("{hex_str}_repl"))).unwrap()).unwrap().clone();
@@ -180,8 +232,43 @@ pub fn retest_fuzz_error(hex_str: &str) {
 
     assert_eq!(css, parsed_src.parse.syntax_node().text().to_string());
     assert_eq!(css, reparsed_src.parse.syntax_node().text().to_string());
-    println!("### FULLY PARSED \n{}", parsed_src.parse.fancy_string());
-    println!("### INCREMENTALLY REPARSED \n{}", reparsed_src.parse.fancy_string());
+
+    println!("### FULLY PARSED");
+    let lexer_diags = parsed_src.parse.errors();
+    let mut toks = Vec::new();
+    let mut tok = parsed_src.parse.syntax_node().first_token();
+    tok.clone().and_then(|t| Some(toks.push(t)));
+    while let Some(tok_nex) = tok.as_ref().map(|t| t.next_token()) {
+      tok_nex.clone().and_then(|t| Some(toks.push(t)));
+      tok = tok_nex;
+    }
+    // // let toks = parsed_src.parse.syntax_node().first_token()
+    // // let toks = tokenizer::tokenize_file(&css, &mut lexer_diags).map(|t| t).collect::<Vec<Token>>();
+    println!("toks: {}\nerrs: {:?}", 
+      pretty_syntax_tokens(toks.iter()), 
+      lexer_diags.iter().map(|d| 
+        d.to_string() + " " + &format!("{:?}..{:?}", d.range().start(), d.range().end()) + 
+        "```" + &prev_css[d.range().start().into()..d.range().end().into()] + "```"
+      ).collect::<Vec<String>>());
+    println!("{}", parsed_src.parse.fancy_string());
+
+    println!("### INCREMENTALLY REPARSED");
+    let lexer_diags = reparsed_src.parse.errors();
+    let mut toks = Vec::new();
+    let mut tok = reparsed_src.parse.syntax_node().first_token();
+    tok.clone().and_then(|t| Some(toks.push(t)));
+    while let Some(tok_nex) = tok.as_ref().map(|t| t.next_token()) {
+      tok_nex.clone().and_then(|t| Some(toks.push(t)));
+      tok = tok_nex;
+    }
+    println!("toks: {}\nerrs: {:?}", 
+      pretty_syntax_tokens(toks.iter()), 
+      lexer_diags.iter().map(|d| 
+        d.to_string() + " " + &format!("{:?}..{:?}", d.range().start(), d.range().end()) + 
+        "```" + &prev_css[d.range().start().into()..d.range().end().into()] + "```"
+      ).collect::<Vec<String>>());
+    println!("{}", reparsed_src.parse.fancy_string());
+
     assert_eq!(parsed_src.parse, reparsed_src.parse);
     println!("Fuzz sample {hex_str} passed retesting succesfully.");
 }

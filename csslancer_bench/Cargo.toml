@@ -1,0 +1,17 @@
+[package]
+name = "csslancer_bench"
+version = "0.1.0"
+edition = "2024"
+
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "css_perf"
+harness = false
+
+[dependencies]
+cc = "1.2.17"
+regex = "1.11.1"
+ureq = "3.0.10"
