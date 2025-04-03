@@ -11,6 +11,11 @@ python3
 sudo zypper install gperf
 ```
 
+For make_style_shorthands.py
+```bash
+sudo zypper install python313-jinja2
+```
+
 ### 
 
 

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::{copy, DirEntry, ReadDir}, path::{Path, PathBuf}, str};
+use std::{collections::HashSet, fs::{copy, rename, DirEntry, ReadDir}, path::{Path, PathBuf}, str};
 
 use regex::Regex;
 
@@ -51,10 +51,15 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./blink/Source/build/scripts/in_generator.py", r#"print "USAGE: %s INPUT_FILES" % script_name"#, r#"print("USAGE: %s INPUT_FILES" % script_name)"#),
     ("./blink/Source/build/scripts/in_file.py", "print message", r#"print(message)"#),
     ("./blink/Source/build/scripts/in_generator.py", "basestring", "str"),
-    ("./blink/Source/build/scripts/in_file.py", "args[arg_name].append(arg_value)", "args[arg_name] = args[arg_name] + arg_value"),
+    ("./blink/Source/build/scripts/in_file.py", "self._is_sequence(args[arg_name])", "type(args[arg_name]) == type([])"),
+    ("./blink/Source/build/scripts/template_expander.py", "func_name", "__name__"),
+    ("./blink/Source/build/scripts/make_css_value_keywords.py", "len(enum_enties)", "len(list(enum_enties))"),
+    ("./blink/Source/build/scripts/make_css_value_keywords.py", "import sys", "import sys\nfrom functools import reduce"),
     ("./blink/Source/core/css/parser/CSSParser.cpp", r#"#include "core/layout/LayoutTheme.h""#, ""),
     ("./blink/Source/core/css/parser/CSSParser.cpp", "LayoutTheme::theme().systemColor(id)", "0xFFFFFFFF"),
-    ("./blink/Source/core/css/parser/CSSParser.h", r#"#include "platform/graphics/Color.h"#, "namespace blink{typedef unsigned RGBA32;}")
+    ("./blink/Source/core/css/parser/CSSParser.h", r#"#include "platform/graphics/Color.h"#, "namespace blink{typedef unsigned RGBA32;}"),
+    ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ExceptionStatePlaceholder.h\"", ""),
+    ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ScriptValue.h\"", ""),
 ];
 
 fn update_parsers() {
@@ -77,11 +82,31 @@ fn update_parsers() {
         std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
     }
 
+    let sksize = "Source/third_party/skia/include/core/SkSize.h";
+    assert!(Path::new(&format!("./blink-overlay/{sksize}")).exists());
+    std::fs::create_dir_all(Path::new("./blink/Source/third_party/skia/include/core/")).unwrap();
+    copy(&format!("./blink-overlay/{sksize}"), &format!("./blink/{sksize}")).unwrap();
+
+    let color = "Source/platform/graphics/Color.h";
+    copy(&format!("./blink-overlay/{color}"), &format!("./blink/{color}")).unwrap();
+
     exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in"]);
     copy("./CSSPropertyNames.cpp", "./blink/Source/core/CSSPropertyNames.cpp").unwrap();
     copy("./CSSPropertyNames.h",   "./blink/Source/core/CSSPropertyNames.h").unwrap();
     std::fs::remove_file("./CSSPropertyNames.cpp").unwrap();
     std::fs::remove_file("./CSSPropertyNames.h").unwrap();
+
+    exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in"]);
+    rename("./StylePropertyShorthand.cpp", "./blink/Source/core/StylePropertyShorthand.cpp").unwrap();
+    rename("./StylePropertyShorthand.h", "./blink/Source/core/StylePropertyShorthand.h").unwrap();
+
+    exec_python_file(&["./blink/Source/build/scripts/make_runtime_features.py", "./blink/Source/platform/RuntimeEnabledFeatures.in"]);
+    rename("./RuntimeEnabledFeatures.cpp", "./blink/Source/platform/RuntimeEnabledFeatures.cpp").unwrap();
+    rename("./RuntimeEnabledFeatures.h", "./blink/Source/platform/RuntimeEnabledFeatures.h").unwrap();
+
+    exec_python_file(&["./blink/Source/build/scripts/make_css_value_keywords.py", "./blink/Source/core/css/CSSValueKeywords.in"]);
+    rename("./CSSValueKeywords.cpp", "./blink/Source/core/CSSValueKeywords.cpp").unwrap();
+    rename("./CSSValueKeywords.h", "./blink/Source/core/CSSValueKeywords.h").unwrap();
 
     let mut dir = std::fs::read_dir(Path::new("./blink/Source/core/css/parser")).unwrap();
 
@@ -144,14 +169,17 @@ fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mu
     handled_paths.push(file.to_string_lossy().to_string());
     let direct_deps = gather_deps(file);
     for dep in direct_deps.into_iter() {
-        let proj_rel_path = Path::new("./blink/Source/").join(&dep);
+        let source_rel_path = Path::new("./blink/Source/").join(&dep);
+        let blink_rel_path = Path::new("./blink/").join(&dep);
         let file_rel_path = file.parent().unwrap().join(&dep);
 
         let mut found_path = None;
         if file_rel_path.exists() {
             found_path = Some(file_rel_path);
-        } else if proj_rel_path.exists() {
-            found_path = Some(proj_rel_path);
+        } else if blink_rel_path.exists(){
+            found_path = Some(blink_rel_path);
+        } else if source_rel_path.exists() {
+            found_path = Some(source_rel_path);
         }
         let dep_path = found_path.expect(&format!("Could not find include {}", dep));
 
