@@ -5,18 +5,37 @@
 sudo zypper install gcc-c++
 ```
 
+### Install Python3
+
 python3
+
+### Install gperf
 
 ```bash
 sudo zypper install gperf
 ```
+
+Windows
+```shell
+winget install gnuwin32.gperf
+```
+
+### Install jinja2
 
 For make_style_shorthands.py
 ```bash
 sudo zypper install python313-jinja2
 ```
 
-### 
+Windows
+```shell
+pip install jinja2
+```
+
+### Github release token OR download unicode-org/icu
+
+env var GHPAT_RO
+
 
 
 ### IN blink/Source/css
