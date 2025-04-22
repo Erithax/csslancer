@@ -217,6 +217,7 @@ fn update_parsers() {
     blink_css_build.out_dir("./blink_css_out/");
     blink_css_build.include("./blink/comp/Source/");
     blink_css_build.include("./blink/comp/");
+    blink_css_build.define("ENABLE(feature_name)", "ENABLE_##feature_name"); // define ENABLE MACRO
     println!("COMPILING");
     blink_css_build.compile("blink_css");
 }
