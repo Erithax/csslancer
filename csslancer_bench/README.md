@@ -4,6 +4,10 @@
 ```bash
 sudo zypper install gcc-c++
 ```
+No, do:
+```bash
+sudo zypper install -t pattern devel_C_C++
+```
 
 ### Install Python3
 

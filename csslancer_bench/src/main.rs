@@ -77,6 +77,7 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./blink/Source/core/svg/SVGPathSeg.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
     ("./blink/Source/core/svg/SVGPathSeg.h", ", public ScriptWrappable", ""),
     ("./blink/Source/core/svg/SVGPathSeg.h", "    DEFINE_WRAPPERTYPEINFO();", ""),
+    ("./blink/Source/wtf/LinkedHashSet.h", " swapAnchor(m_", " this->swapAnchor(m_"), // fix there are no arguments to 'swapAnchor' that depend on a template parameter, so a declaration of 'swapAnchor' must be available
     ("./blink/Source/build/scripts/hasher.py", "1L", "1"), // L in python2 denotes long integer literal, in python3 int handles integers of arbitrary size
     ("./blink/Source/build/scripts/hasher.py", "0x9E3779B9L", "0x9E3779B9"),
     ("./blink/Source/build/scripts/hasher.py", "long", "int"),
@@ -211,14 +212,21 @@ fn update_parsers() {
     cpdir("./blink/unicode/", "./blink/comp/unicode/");
     // println!(" HOST {}", std::env::var("HOST").unwrap());
     // println!("HHOST {}", std::env::var("HHOST").unwrap());
+    println!("TARGET {}", std::env::var("TTARGET").unwrap().as_str());
+    println!("HOST   {}", std::env::var("HHOST").unwrap().as_str());
     blink_css_build.target(std::env::var("TTARGET").unwrap().as_str());
     blink_css_build.host(std::env::var("HHOST").unwrap().as_str());
     blink_css_build.opt_level(2);
     blink_css_build.out_dir("./blink_css_out/");
     blink_css_build.include("./blink/comp/Source/");
     blink_css_build.include("./blink/comp/");
-    blink_css_build.define("ENABLE(feature_name)", "ENABLE_##feature_name"); // define ENABLE MACRO
-    println!("COMPILING");
+    blink_css_build.include("/usr/include/c++/14/");
+    blink_css_build.std("c++20");
+    blink_css_build.flag("-include");
+    blink_css_build.flag("./blink/comp/Source/config.h");
+    blink_css_build.flag("-Wno-unused-variable");
+    blink_css_build.flag("-Wno-unused-parameter");
+    blink_css_build.flag("-Wno-template-id-cdtor");
     blink_css_build.compile("blink_css");
 }
 
