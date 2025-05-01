@@ -20,32 +20,42 @@
  *
  */
 
- #ifndef LayoutTheme_h
- #define LayoutTheme_h
+#ifndef LayoutTheme_h
+#define LayoutTheme_h
  
-//  #include NO "core/CoreExport.h"
+#include "core/CoreExport.h"
 //  #include NO "core/layout/LayoutObject.h"
 //  #include NO "platform/ThemeTypes.h"
 //  #include NO "platform/scroll/ScrollTypes.h"
 //  #include NO "wtf/PassRefPtr.h"
- #include "wtf/RefCounted.h"
+#include "wtf/RefCounted.h"
 //  #include NO "wtf/text/WTFString.h"
+
+// ADDED BY CSSLANCER
+// TODO: what is going on here, should these really be a default include?! (passed to compiler)
+// !?!
+#include "core/CSSValueKeywords.h"
+#include "platform/fonts/FontTraits.h"
  
- namespace blink {
- 
- class ComputedStyle;
- class Element;
- class FileList;
- class HTMLInputElement;
- class LayoutMeter;
- class Theme;
- class ThemePainter;
- 
- class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
- protected:
-     LayoutTheme();
- 
- public:
+namespace blink {
+
+// <ADDED BY CSSLANCER>
+class FontDescription;
+// </ADDED BY CSSLANCER
+
+class ComputedStyle;
+class Element;
+class FileList;
+class HTMLInputElement;
+class LayoutMeter;
+class Theme;
+class ThemePainter;
+
+class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
+protected:
+    LayoutTheme();
+
+public:
 //      virtual ~LayoutTheme() { }
  
 //      // This function is to be implemented in your platform-specific theme implementation to hand back the
@@ -130,9 +140,9 @@
  
     //  virtual double caretBlinkInterval() const { return 0.5; }
  
-     // System fonts and colors for CSS.
-     virtual void systemFont(CSSValueID systemFontID, FontStyle&, FontWeight&, float& fontSize, AtomicString& fontFamily) const = 0;
-     void systemFont(CSSValueID systemFontID, FontDescription&);
+    // System fonts and colors for CSS.
+    virtual void systemFont(CSSValueID systemFontID, FontStyle&, FontWeight&, float& fontSize, AtomicString& fontFamily) const = 0;
+    void systemFont(CSSValueID systemFontID, FontDescription&);
     //  virtual Color systemColor(CSSValueID) const;
  
     //  // Whether the default system font should have its average character width

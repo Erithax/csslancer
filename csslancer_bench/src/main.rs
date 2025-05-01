@@ -69,14 +69,27 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./blink/Source/build/scripts/template_expander.py", "func_name", "__name__"),
     ("./blink/Source/build/scripts/make_css_value_keywords.py", "len(enum_enties)", "len(list(enum_enties))"),
     ("./blink/Source/build/scripts/make_css_value_keywords.py", "import sys", "import sys\nfrom functools import reduce"),
-    ("./blink/Source/core/css/parser/CSSParser.cpp", r#"#include "core/layout/LayoutTheme.h""#, ""),
+    ("./blink/Source/core/css/CSSRule.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    ("./blink/Source/core/css/CSSRule.h", ", public ScriptWrappable", ""),
+    ("./blink/Source/core/css/MediaList.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    ("./blink/Source/core/css/MediaList.h", ", public ScriptWrappable", ""),
+    ("./blink/Source/core/css/CSSStyleDeclaration.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    ("./blink/Source/core/css/CSSStyleDeclaration.h", ", public ScriptWrappable", ""),
+    ("./blink/Source/core/css/StyleSheet.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    ("./blink/Source/core/css/StyleSheet.h", ", public ScriptWrappable", ""),
+    ("./blink/Source/core/style/ComputedStyle.h", "#include \"core/animation/css/CSSAnimationData.h\"", ""),
+    ("./blink/Source/core/style/ComputedStyle.h", r#"const CSSAnimationData* animations() const { return rareNonInheritedData->m_animations.get(); }"#, ""),
+    ("./blink/Source/core/style/ComputedStyle.h", r#"CSSAnimationData& accessAnimations();"#, ""),
+    ("./blink/Source/core/css/parser/CSSParser.cpp", "#include \"core/layout/LayoutTheme.h\"", ""),
     ("./blink/Source/core/css/parser/CSSParser.cpp", "LayoutTheme::theme().systemColor(id)", "0xFFFFFFFF"),
-    ("./blink/Source/core/css/parser/CSSParser.h", r#"#include "platform/graphics/Color.h"#, "namespace blink{typedef unsigned RGBA32;}"),
+    ("./blink/Source/core/css/parser/CSSParser.h", "#include \"platform/graphics/Color.h\"", "namespace blink{typedef unsigned RGBA32;}"),
     ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ExceptionStatePlaceholder.h\"", ""),
     ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ScriptValue.h\"", ""),
     ("./blink/Source/core/svg/SVGPathSeg.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
     ("./blink/Source/core/svg/SVGPathSeg.h", ", public ScriptWrappable", ""),
     ("./blink/Source/core/svg/SVGPathSeg.h", "    DEFINE_WRAPPERTYPEINFO();", ""),
+    ("./blink/Source/core/frame/UseCounter.h", "#include <v8.h>", ""),
+    // TBD: fixes for removing v8 from UseCounter ("./blink/Source/core/frame/UseCounter.h", "")
     ("./blink/Source/wtf/LinkedHashSet.h", " swapAnchor(m_", " this->swapAnchor(m_"), // fix there are no arguments to 'swapAnchor' that depend on a template parameter, so a declaration of 'swapAnchor' must be available
     ("./blink/Source/build/scripts/hasher.py", "1L", "1"), // L in python2 denotes long integer literal, in python3 int handles integers of arbitrary size
     ("./blink/Source/build/scripts/hasher.py", "0x9E3779B9L", "0x9E3779B9"),
@@ -165,13 +178,13 @@ fn update_parsers() {
     }
 
     println!("DEPS COUNT = {}", deps.iter().count());
-    for dep in deps {
-        println!("DEP: {}", dep);
-    }
+    // for dep in deps {
+    //     println!("DEP: {}", dep);
+    // }
 
     let mut trans_deps = HashSet::new();
     let mut trans_sys_deps = HashSet::new();
-    for parser_file in parser_files {
+    for parser_file in parser_files.iter() {
         let file_deps = gather_trans_deps(&parser_file);
         for file_dep in file_deps.project {
             trans_deps.insert(file_dep);
@@ -182,31 +195,43 @@ fn update_parsers() {
     }
 
     println!("\nTRANSITIVE PROJECT DEPS COUNT = {}", trans_deps.iter().count());
-    for dep in trans_deps.iter() {
-        println!("DEP: {}", dep);
-    }
+    // for dep in trans_deps.iter() {
+    //     println!("DEP: {}", dep);
+    // }
 
     println!("\nTRANSITIVE SYSTEM DEPS COUNT = {}", trans_sys_deps.iter().count());
-    for dep in trans_sys_deps {
-        println!("DEP: {}", dep);
-    }
+    // for dep in trans_sys_deps {
+    //     println!("DEP: {}", dep);
+    // }
+
+    let mut all_files = trans_deps;
+    all_files.extend(parser_files.into_iter()
+        .map(|file| Dep {
+            repr: file.to_str().unwrap().to_string(),
+            path: file,
+        })
+    );
 
     println!("\n");
 
     println!("Copying to ./blink/comp/");
 
     std::fs::create_dir_all("./blink/comp/").unwrap();
-    for dep in trans_deps {
-        let rel_to_blink = dep.path.to_string_lossy().replace("./blink/", "./blink/comp/");
+    for file in all_files {
+        let rel_to_blink = file.path.to_string_lossy().replace("./blink/", "./blink/comp/");
         println!("{}", rel_to_blink);
         std::fs::create_dir_all(Path::new(rel_to_blink.as_str()).parent().unwrap()).unwrap();
-        std::fs::copy(dep.path, rel_to_blink).unwrap();
+        std::fs::copy(file.path, rel_to_blink).unwrap();
     }
 
     dir = std::fs::read_dir(Path::new("./blink/comp/")).unwrap();
     let mut blink_css_build = cc::Build::new();
     blink_css_build.cpp(true);
     for entry in gather_files_readdir(dir) {
+        if entry.to_str().unwrap().contains("CSSTokenizerCodepoints") {
+            println!("uh no dont include this partial file!");
+            continue;
+        }
         blink_css_build.file(entry.to_str().unwrap());
     }
     cpdir("./blink/unicode/", "./blink/comp/unicode/");
@@ -224,9 +249,17 @@ fn update_parsers() {
     blink_css_build.std("c++20");
     blink_css_build.flag("-include");
     blink_css_build.flag("./blink/comp/Source/config.h");
+    blink_css_build.flag("-include");
+    blink_css_build.flag("./blink/comp/Source/platform/PlatformExport.h");
+    blink_css_build.flag("-include");
+    blink_css_build.flag("./blink/comp/Source/wtf/HashTraits.h");
+    blink_css_build.flag("-include");
+    blink_css_build.flag("./blink/comp/Source/wtf/HashTable.h");
     blink_css_build.flag("-Wno-unused-variable");
     blink_css_build.flag("-Wno-unused-parameter");
     blink_css_build.flag("-Wno-template-id-cdtor");
+    blink_css_build.flag("-Wno-register");
+    blink_css_build.flag("-Wno-class-memaccess");
     blink_css_build.compile("blink_css");
 }
 
@@ -253,6 +286,9 @@ struct Deps {
     pub project: Vec<Dep<PathBuf>>,
 }
 
+/// Includes of a header or source file.
+/// Each String is a substring of the file with the include.
+/// e.g. "<cstddef>" or "core/wtf/HashTable.h"
 struct DepsReprs {
     pub system: Vec<String>,
     pub project: Vec<String>,
@@ -336,7 +372,7 @@ fn gather_deps_repr(file: &Path) -> DepsReprs {
     for dep in deps.into_iter() {
         for dep in dep.iter() {
             let dep = dep.unwrap();
-            if dep.as_str().contains("#") || dep.as_str().contains("core/css") {
+            if dep.as_str().contains("#") || dep.as_str().contains("core/css/parser") {
                 continue;
             }
             res_proj.push(dep.as_str().to_owned());
