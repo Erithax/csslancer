@@ -24,7 +24,17 @@ Windows
 winget install gnuwin32.gperf
 ```
 
+### Install json5
+
+For make_runtime_features.py
+
+OpenSUSE
+```bash
+sudo zypper install python313-json5
+```
+
 ### Install jinja2
+
 
 For make_style_shorthands.py
 ```bash

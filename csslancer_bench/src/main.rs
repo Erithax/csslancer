@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::{copy, remove_dir_all, rename, DirEntry, ReadDir}, path::{Path, PathBuf}, str};
+use std::{collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, path::{Path, PathBuf}, str};
 
 use regex::Regex;
 use std::io;
@@ -43,9 +43,34 @@ fn copy_from_overlay(rel_path: &str) {
 fn clone_repo(url: &str) {
     println!("Cloning repo {url}");
     std::process::Command::new("git")
-        .args(["clone", "--depth", "1" , url])
+        .args(["clone", "--depth", "1" , "--no-checkout", url])
         .output()
         .expect(&format!("failed to clone repo {url}"));
+}
+
+fn cmd_succ(exe: &str, args: &[&str], wrk_dir: &str) {
+    std::process::Command::new(exe)
+        .args(args)
+        .current_dir(wrk_dir)
+        .output()
+        .expect(&format!("failed to exec cmd ``{exe} {}``", args.join(" ")))
+        .status.success().then(|| ())
+        .expect(&format!("error executing cmd ``{exe} {}``", args.join(" ")));
+}
+
+fn sparse_clone(to_dir: &str, url: &str, subtree: &str) {
+    println!("Sparse clone {url}");
+    let dir = to_dir;
+    create_dir_all(dir).unwrap();
+
+    // cmd_succ("git", &["init"], dir);
+    // cmd_succ("git", &["remote", "add", " -f", "origin", url], dir);
+    // cmd_succ("git", &["sparse-checkout", "init"], dir);
+    // cmd_succ("git", &["sparse-checkout", "set", subtree], dir);
+    // cmd_succ("git", &["pull", "--depth", "1", "origin", "main"], dir);
+
+    cmd_succ("git", &["clone", "--no-checkout", "--depth=1", "--filter=tree:0", "--branch", "main", "--single-branch", url], dir);
+    cmd_succ("git", &["sparse-checkout", "set", "--no-cone", subtree], dir);
 }
 
 fn exec_python_file(args: &[&str]) {
@@ -62,39 +87,39 @@ fn exec_python_file(args: &[&str]) {
 }
 
 const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
-    ("./blink/Source/build/scripts/in_generator.py", r#"print "USAGE: %s INPUT_FILES" % script_name"#, r#"print("USAGE: %s INPUT_FILES" % script_name)"#),
-    ("./blink/Source/build/scripts/in_file.py", "print message", r#"print(message)"#),
-    ("./blink/Source/build/scripts/in_generator.py", "basestring", "str"),
-    ("./blink/Source/build/scripts/in_file.py", "self._is_sequence(args[arg_name])", "type(args[arg_name]) == type([])"),
-    ("./blink/Source/build/scripts/template_expander.py", "func_name", "__name__"),
-    ("./blink/Source/build/scripts/make_css_value_keywords.py", "len(enum_enties)", "len(list(enum_enties))"),
-    ("./blink/Source/build/scripts/make_css_value_keywords.py", "import sys", "import sys\nfrom functools import reduce"),
-    ("./blink/Source/core/css/CSSRule.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
-    ("./blink/Source/core/css/CSSRule.h", ", public ScriptWrappable", ""),
-    ("./blink/Source/core/css/MediaList.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
-    ("./blink/Source/core/css/MediaList.h", ", public ScriptWrappable", ""),
-    ("./blink/Source/core/css/CSSStyleDeclaration.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
-    ("./blink/Source/core/css/CSSStyleDeclaration.h", ", public ScriptWrappable", ""),
-    ("./blink/Source/core/css/StyleSheet.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
-    ("./blink/Source/core/css/StyleSheet.h", ", public ScriptWrappable", ""),
-    ("./blink/Source/core/style/ComputedStyle.h", "#include \"core/animation/css/CSSAnimationData.h\"", ""),
-    ("./blink/Source/core/style/ComputedStyle.h", r#"const CSSAnimationData* animations() const { return rareNonInheritedData->m_animations.get(); }"#, ""),
-    ("./blink/Source/core/style/ComputedStyle.h", r#"CSSAnimationData& accessAnimations();"#, ""),
-    ("./blink/Source/core/css/parser/CSSParser.cpp", "#include \"core/layout/LayoutTheme.h\"", ""),
-    ("./blink/Source/core/css/parser/CSSParser.cpp", "LayoutTheme::theme().systemColor(id)", "0xFFFFFFFF"),
-    ("./blink/Source/core/css/parser/CSSParser.h", "#include \"platform/graphics/Color.h\"", "namespace blink{typedef unsigned RGBA32;}"),
-    ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ExceptionStatePlaceholder.h\"", ""),
-    ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ScriptValue.h\"", ""),
-    ("./blink/Source/core/svg/SVGPathSeg.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
-    ("./blink/Source/core/svg/SVGPathSeg.h", ", public ScriptWrappable", ""),
-    ("./blink/Source/core/svg/SVGPathSeg.h", "    DEFINE_WRAPPERTYPEINFO();", ""),
-    ("./blink/Source/core/frame/UseCounter.h", "#include <v8.h>", ""),
+    // ("./blink/Source/build/scripts/in_generator.py", r#"print "USAGE: %s INPUT_FILES" % script_name"#, r#"print("USAGE: %s INPUT_FILES" % script_name)"#),
+    // ("./blink/Source/build/scripts/in_file.py", "print message", r#"print(message)"#),
+    // ("./blink/Source/build/scripts/in_generator.py", "basestring", "str"),
+    // ("./blink/Source/build/scripts/in_file.py", "self._is_sequence(args[arg_name])", "type(args[arg_name]) == type([])"),
+    // ("./blink/Source/build/scripts/template_expander.py", "func_name", "__name__"),
+    // ("./blink/Source/build/scripts/make_css_value_keywords.py", "len(enum_enties)", "len(list(enum_enties))"),
+    // ("./blink/Source/build/scripts/make_css_value_keywords.py", "import sys", "import sys\nfrom functools import reduce"),
+    // ("./blink/Source/core/css/CSSRule.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    // ("./blink/Source/core/css/CSSRule.h", ", public ScriptWrappable", ""),
+    // ("./blink/Source/core/css/MediaList.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    // ("./blink/Source/core/css/MediaList.h", ", public ScriptWrappable", ""),
+    // ("./blink/Source/core/css/CSSStyleDeclaration.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    // ("./blink/Source/core/css/CSSStyleDeclaration.h", ", public ScriptWrappable", ""),
+    // ("./blink/Source/core/css/StyleSheet.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    // ("./blink/Source/core/css/StyleSheet.h", ", public ScriptWrappable", ""),
+    // ("./blink/Source/core/style/ComputedStyle.h", "#include \"core/animation/css/CSSAnimationData.h\"", ""),
+    // ("./blink/Source/core/style/ComputedStyle.h", r#"const CSSAnimationData* animations() const { return rareNonInheritedData->m_animations.get(); }"#, ""),
+    // ("./blink/Source/core/style/ComputedStyle.h", r#"CSSAnimationData& accessAnimations();"#, ""),
+    // ("./blink/Source/core/css/parser/CSSParser.cpp", "#include \"core/layout/LayoutTheme.h\"", ""),
+    // ("./blink/Source/core/css/parser/CSSParser.cpp", "LayoutTheme::theme().systemColor(id)", "0xFFFFFFFF"),
+    // ("./blink/Source/core/css/parser/CSSParser.h", "#include \"platform/graphics/Color.h\"", "namespace blink{typedef unsigned RGBA32;}"),
+    // ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ExceptionStatePlaceholder.h\"", ""),
+    // ("./blink/Source/core/dom/Document.h", "#include \"bindings/core/v8/ScriptValue.h\"", ""),
+    // ("./blink/Source/core/svg/SVGPathSeg.h", "#include \"bindings/core/v8/ScriptWrappable.h\"", ""),
+    // ("./blink/Source/core/svg/SVGPathSeg.h", ", public ScriptWrappable", ""),
+    // ("./blink/Source/core/svg/SVGPathSeg.h", "    DEFINE_WRAPPERTYPEINFO();", ""),
+    // ("./blink/Source/core/frame/UseCounter.h", "#include <v8.h>", ""),
     // TBD: fixes for removing v8 from UseCounter ("./blink/Source/core/frame/UseCounter.h", "")
-    ("./blink/Source/wtf/LinkedHashSet.h", " swapAnchor(m_", " this->swapAnchor(m_"), // fix there are no arguments to 'swapAnchor' that depend on a template parameter, so a declaration of 'swapAnchor' must be available
-    ("./blink/Source/build/scripts/hasher.py", "1L", "1"), // L in python2 denotes long integer literal, in python3 int handles integers of arbitrary size
-    ("./blink/Source/build/scripts/hasher.py", "0x9E3779B9L", "0x9E3779B9"),
-    ("./blink/Source/build/scripts/hasher.py", "long", "int"),
-    ("./blink/Source/build/scripts/templates/MakeNames.h.tmpl", "{% for entry in entries|sort %}", "{% for entry in entries|sort(attribute='name') %}"), // jinja needs key to sort dicts on
+    // ("./blink/Source/wtf/LinkedHashSet.h", " swapAnchor(m_", " this->swapAnchor(m_"), // fix there are no arguments to 'swapAnchor' that depend on a template parameter, so a declaration of 'swapAnchor' must be available
+    // ("./blink/Source/build/scripts/hasher.py", "1L", "1"), // L in python2 denotes long integer literal, in python3 int handles integers of arbitrary size
+    // ("./blink/Source/build/scripts/hasher.py", "0x9E3779B9L", "0x9E3779B9"),
+    // ("./blink/Source/build/scripts/hasher.py", "long", "int"),
+    // ("./blink/Source/build/scripts/templates/MakeNames.h.tmpl", "{% for entry in entries|sort %}", "{% for entry in entries|sort(attribute='name') %}"), // jinja needs key to sort dicts on
 ];
 
 fn update_parsers() {
@@ -103,8 +128,14 @@ fn update_parsers() {
     // let _ = rmdir("./blink");
     let _ = rmdir("./blink-css");
     let _ = rmdir("./depot_tools");
-    let _ = rmdir("./chromium");
 
+    if false {
+        // let _ = rmdir("./chromium");
+        // sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", "third_party/blink");
+    }
+
+    cpdir("./chromium/src/third_party/blink/", "./chromium/dst/third_party/blink/");
+    
     // clone_repo("https://chromium.googlesource.com/chromium/blink");
     // clone_repo("https://chromium.googlesource.com/chromium/tools/depot_tools");
     // clone_repo("https://chromium.googlesource.com/chromium");
@@ -120,8 +151,8 @@ fn update_parsers() {
     // https://github.com/unicode-org/icu/
     if cfg!(windows) {
         // take Github release icu4c-XX.X-Win64-MSVC2022.zip and unzip at ./blink/icu/
-        remove_dir_all("./blink/icu/bin64").unwrap();
-        remove_dir_all("./blink/icu/lib64").unwrap();
+        // remove_dir_all("./blink/icu/bin64").unwrap();
+        // remove_dir_all("./blink/icu/lib64").unwrap();
         cpdir("./blink/icu/include/unicode/", "./blink/unicode/");
     } else if cfg!(target_os = "linux") {
         // take Github release icu4c-XX.X-Fedora_linux40-x64.tgz and untar at ./blink/icu/
@@ -129,18 +160,18 @@ fn update_parsers() {
         // remove_dir_all("./blink/icu/usr/local/lib/").unwrap();
         // remove_dir_all("./blink/icu/usr/local/sbin/").unwrap();
         // remove_dir_all("./blink/icu/usr/local/share/").unwrap();
-        cpdir("./blink/icu/usr/local/include/unicode/", "./blink/unicode/");
+        //cpdir("./blink/icu/usr/local/include/unicode/", "./blink/unicode/");
     } else {
         panic!("Only linux and windows supported.");
     }
 
     // cpdir("./blink/Source/core/css", "./blink-css");
     // copy("./blink/Source/config.h", "./blink-css/config.h").unwrap();
-    
 
     println!("Patching");
 
     for patch in PATCHES {
+        println!("{}", patch.0);
         let prev = std::fs::read_to_string(Path::new(patch.0)).unwrap();
         std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
     }
@@ -154,17 +185,17 @@ fn update_parsers() {
     copy_from_overlay("Source/core/layout/LayoutTheme.h");
     copy_from_overlay("Source/core/layout/LayoutTheme.cpp");
 
-    exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_runtime_features.py", "./blink/Source/platform/RuntimeEnabledFeatures.in", "--output_dir", "./blink/Source/platform/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_css_value_keywords.py", "./blink/Source/core/css/CSSValueKeywords.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_settings.py", "./blink/Source/core/frame/Settings.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_css_tokenizer_codepoints.py", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_media_features.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/Source/build/scripts/make_names.py", "./blink/Source/core/css/MediaTypeNames.in", "--output_dir", "./blink/Source/core/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
+    exec_python_file(&["./blink/renderer/build/scripts/make_runtime_features.py", "./blink/renderer/platform/runtime_enabled_features.json5", "--output_dir", "./blink/renderer/platform/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_css_value_keywords.py", "./blink/Source/core/css/CSSValueKeywords.in", "--output_dir", "./blink/Source/core/"]);
+    exec_python_file(&["./blink/renderer/build/scripts/make_settings.py", "./blink/renderer/core/frame/settings.json5", "--output_dir", "./blink/renderer/core/frame/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_css_tokenizer_codepoints.py", "--output_dir", "./blink/Source/core/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_media_features.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
+    // exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
+    exec_python_file(&["./blink/renderer/build/scripts/make_names.py", "./blink/renderer/core/css/media_type_names.json5", "--output_dir", "./blink/renderer/core/css/"]);
 
-    let mut dir = std::fs::read_dir(Path::new("./blink/Source/core/css/parser")).unwrap();
+    let mut dir = std::fs::read_dir(Path::new("./blink/renderer/core/css/parser")).unwrap();
 
     let parser_files = gather_files_readdir(dir);
 
@@ -243,23 +274,24 @@ fn update_parsers() {
     blink_css_build.host(std::env::var("HHOST").unwrap().as_str());
     blink_css_build.opt_level(2);
     blink_css_build.out_dir("./blink_css_out/");
-    blink_css_build.include("./blink/comp/Source/");
+    // blink_css_build.include("./blink/comp/Source/");
     blink_css_build.include("./blink/comp/");
-    blink_css_build.include("/usr/include/c++/14/");
+    blink_css_build.include("./blink/comp/renderer/");
+    // blink_css_build.include("/usr/include/c++/14/");
     blink_css_build.std("c++20");
-    blink_css_build.flag("-include");
-    blink_css_build.flag("./blink/comp/Source/config.h");
-    blink_css_build.flag("-include");
-    blink_css_build.flag("./blink/comp/Source/platform/PlatformExport.h");
-    blink_css_build.flag("-include");
-    blink_css_build.flag("./blink/comp/Source/wtf/HashTraits.h");
-    blink_css_build.flag("-include");
-    blink_css_build.flag("./blink/comp/Source/wtf/HashTable.h");
-    blink_css_build.flag("-Wno-unused-variable");
-    blink_css_build.flag("-Wno-unused-parameter");
-    blink_css_build.flag("-Wno-template-id-cdtor");
-    blink_css_build.flag("-Wno-register");
-    blink_css_build.flag("-Wno-class-memaccess");
+    // blink_css_build.flag("-include");
+    // blink_css_build.flag("./blink/comp/Source/config.h");
+    // blink_css_build.flag("-include");
+    // blink_css_build.flag("./blink/comp/Source/platform/PlatformExport.h");
+    // blink_css_build.flag("-include");
+    // blink_css_build.flag("./blink/comp/Source/wtf/HashTraits.h");
+    // blink_css_build.flag("-include");
+    // blink_css_build.flag("./blink/comp/platform/wtf/HashTable.h");
+    // blink_css_build.flag("-Wno-unused-variable");
+    // blink_css_build.flag("-Wno-unused-parameter");
+    // blink_css_build.flag("-Wno-template-id-cdtor");
+    // blink_css_build.flag("-Wno-register");
+    // blink_css_build.flag("-Wno-class-memaccess");
     blink_css_build.compile("blink_css");
 }
 
@@ -312,7 +344,7 @@ fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mu
 
     if file.ends_with(".h") {
         // recurse into .cpp includes
-        let cpp_file_str = file.to_string_lossy().replace(".h", ".cpp");
+        let cpp_file_str = file.to_string_lossy().replace(".h", ".cc");
         let cpp_file = Path::new(&cpp_file_str);
         if cpp_file.exists() {
             gather_deps_rec(cpp_file, handled_paths, trans_deps, lvl);
