@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, path::{Path, PathBuf}, str};
+use std::{collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, io::Write, path::{Path, PathBuf}, str};
 
 use regex::Regex;
 use std::io;
@@ -225,15 +225,55 @@ fn update_parsers() {
     // copy_from_overlay("Source/core/layout/LayoutTheme.h");
     // copy_from_overlay("Source/core/layout/LayoutTheme.cpp");
 
+    // see /build/buildflag_header.gni
+
+    // see /base/BUILD.gn:2664
+    // TODO: actually write GN build flags to the --flags file
+    let debugging_buildflags_flags = "./chromium/src/build/debugging_buildflags_flags";
+    std::fs::File::create(debugging_buildflags_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py", 
+        "--output", "debugging_buildflags.h",
+        "--gen-dir", "./chromium/src/base/debug",
+        "--definitions", debugging_buildflags_flags]);
+
+    // see /base/BUILD.gn:
+    // TODO: actually write GN build flags to the --flags file
+    let fuzzing_build_flags_path = "./chromium/src/build/fuzzing_buildflags_flags";
+    std::fs::File::create(fuzzing_build_flags_path).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py", 
+        "--output", "fuzzing_buildflags.h",
+        "--gen-dir", "./chromium/src/base",
+        "--definitions", fuzzing_build_flags_path]);
+
+    // see ./chromium/src/base/allocator/partition_allocator/src/partition_alloc/buildflag_header.gni
+    // ./chromium/src/base/allocator/partition_allocator/src/partition_alloc/BUILD.gn:135
+    // TODO: actually write GN build flags to the --flags file
+    let part_alloc_build_flags_path = "./chromium/src/base/allocator/partition_allocator/src/partition_alloc/buildflags_flags";
+    std::fs::File::create(part_alloc_build_flags_path).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/base/allocator/partition_allocator/src/partition_alloc/write_buildflag_header.py", 
+        "--output", "buildflags.h",
+        "--gen-dir", "./chromium/src/base/allocator/partition_allocator/src/partition_alloc",
+        "--definitions", part_alloc_build_flags_path]);
+
+    
     // exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_runtime_features.py", "./chromium/src/third_party/blink/renderer/platform/runtime_enabled_features.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/platform/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_runtime_features.py", 
+        "./chromium/src/third_party/blink/renderer/platform/runtime_enabled_features.json5", 
+        "--output_dir", "./chromium/src/third_party/blink/renderer/platform/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_css_value_keywords.py", "./blink/Source/core/css/CSSValueKeywords.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_settings.py", "./chromium/src/third_party/blink/renderer/core/frame/settings.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/core/frame/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_settings.py", 
+        "./chromium/src/third_party/blink/renderer/core/frame/settings.json5", 
+        "--output_dir", "./chromium/src/third_party/blink/renderer/core/frame/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_css_tokenizer_codepoints.py", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_media_features.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
+        "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", 
+        "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
 
     let mut dir = std::fs::read_dir(Path::new("./chromium/src/third_party/blink/renderer/core/css/parser")).unwrap();
 
@@ -253,7 +293,7 @@ fn update_parsers() {
     //     println!("DEP: {}", dep);
     // }
 
-    let include_dirs = &["./chromium/src/"];
+    let include_dirs = &["./chromium/src/", "./chromium/src/base/allocator/partition_allocator/src/"];
 
     let mut trans_deps = HashSet::new();
     let mut trans_sys_deps = HashSet::new();
