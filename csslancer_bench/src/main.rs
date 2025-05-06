@@ -5,11 +5,44 @@ use std::io;
 
 mod github_release;
 
+macro_rules! panic_red {
+    () => {{
+        panic!();
+    }};
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        panic!("\x1b[31m{}\x1b[0m", msg);
+    }};
+}
+
+pub trait ExpectRedOpt<T> {
+    fn expect_red(self, msg: &str) -> T;
+}
+pub trait ExpectRedRes<T, E> {
+    fn expect_red(self, msg: &str) -> T;
+
+}
+
+impl<T> ExpectRedOpt<T> for Option<T> {
+    fn expect_red(self, msg: &str) -> T {
+        self.expect(&format!("\x1b[31m{}\x1b[0m", msg))
+    }
+}
+
+impl<T, E> ExpectRedRes<T, E> for Result<T, E> where E : std::fmt::Debug {
+    fn expect_red(self, msg: &str) -> T {
+        self.expect(&format!("\x1b[31m{}\x1b[0m", msg))
+    }
+}
+
 fn main() {
     println!("csslancer_bench::main()");
-
+    if !std::env::current_dir().unwrap().ends_with("csslancer_bench") {
+        panic_red!("Only call inside of /csslancer/csslancer_bench");
+    }
     update_parsers();
 }
+
 
 
 fn rmdir(dir: &str) -> io::Result<()> {
@@ -17,7 +50,8 @@ fn rmdir(dir: &str) -> io::Result<()> {
 }
 
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
-    std::fs::create_dir_all(&dst)?;
+    std::fs::create_dir_all(&dst)
+        .expect_red(&format!("could not create destination dir : {:?}", dst.as_ref()));
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
@@ -32,7 +66,7 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
 
 fn cpdir(from_dir: &str, to_dir: &str) {
     copy_dir_all(from_dir, to_dir)
-        .expect(&format!("could not copy dir {from_dir} to {to_dir}"));
+        .expect_red(&format!("could not copy dir {from_dir} to {to_dir}"));
 }
 
 fn copy_from_overlay(rel_path: &str) {
@@ -45,20 +79,22 @@ fn clone_repo(url: &str) {
     std::process::Command::new("git")
         .args(["clone", "--depth", "1" , "--no-checkout", url])
         .output()
-        .expect(&format!("failed to clone repo {url}"));
+        .expect_red(&format!("failed to clone repo {url}"));
 }
 
 fn cmd_succ(exe: &str, args: &[&str], wrk_dir: &str) {
+    let txt = format!("``in {wrk_dir} :{exe} {}``", args.join(" "));
+    println!("executing {txt}");
     std::process::Command::new(exe)
         .args(args)
         .current_dir(wrk_dir)
         .output()
-        .expect(&format!("failed to exec cmd ``{exe} {}``", args.join(" ")))
+        .expect_red(&format!("failed to exec cmd {txt}"))
         .status.success().then(|| ())
-        .expect(&format!("error executing cmd ``{exe} {}``", args.join(" ")));
+        .expect_red(&format!("error executing cmd {txt}"));
 }
 
-fn sparse_clone(to_dir: &str, url: &str, subtree: &str) {
+fn sparse_clone(to_dir: &str, url: &str, subtrees: &[&str], top_level: &str) {
     println!("Sparse clone {url}");
     let dir = to_dir;
     create_dir_all(dir).unwrap();
@@ -70,16 +106,19 @@ fn sparse_clone(to_dir: &str, url: &str, subtree: &str) {
     // cmd_succ("git", &["pull", "--depth", "1", "origin", "main"], dir);
 
     cmd_succ("git", &["clone", "--no-checkout", "--depth=1", "--filter=tree:0", "--branch", "main", "--single-branch", url], dir);
-    cmd_succ("git", &["sparse-checkout", "set", "--no-cone", subtree], dir);
+    cmd_succ("git", &["sparse-checkout", "set", "--no-cone", subtrees.join(" ").as_str()], top_level);
+    println!("NOTE: it will NOT download the full 50+ GiB reported");
+    println!("NOTE: this might take a minute or two");
+    cmd_succ("git", &["checkout"], top_level)
 }
 
 fn exec_python_file(args: &[&str]) {
     let out = std::process::Command::new("python3")
         .args(args)
         .output()
-        .expect(&format!("failed to execute python file `{}`", args[0]));
+        .expect_red(&format!("failed to execute python file `{}`", args[0]));
     if !out.status.success() {
-        panic!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
+        panic_red!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
             args[0],
             std::string::String::from_utf8_lossy(&out.stdout), 
             std::string::String::from_utf8_lossy(&out.stderr));
@@ -130,11 +169,12 @@ fn update_parsers() {
     let _ = rmdir("./depot_tools");
 
     if false {
-        // let _ = rmdir("./chromium");
-        // sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", "third_party/blink");
+        let _ = rmdir("./chromium");
+        //sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", "third_party/blink");
+        sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", &["/third_party/blink", "/base", "/build"], "./chromium/src");
     }
 
-    cpdir("./chromium/src/third_party/blink/", "./chromium/dst/third_party/blink/");
+    // cpdir("./chromium/src/third_party/blink/", "./chromium/dst/third_party/blink/");
     
     // clone_repo("https://chromium.googlesource.com/chromium/blink");
     // clone_repo("https://chromium.googlesource.com/chromium/tools/depot_tools");
@@ -146,7 +186,7 @@ fn update_parsers() {
     // std::process::Command::new("tar")
     //     .args(["-xf", "./blink/icu4c-Win64-MSVC2022.zip", "-C", "./blink/icu/"])
     //     .output()
-    //     .expect(&format!("failed unzip unicode-org/icu release"));
+    //     .expect_red(&format!("failed unzip unicode-org/icu release"));
 
     // https://github.com/unicode-org/icu/
     if cfg!(windows) {
@@ -162,7 +202,7 @@ fn update_parsers() {
         // remove_dir_all("./blink/icu/usr/local/share/").unwrap();
         //cpdir("./blink/icu/usr/local/include/unicode/", "./blink/unicode/");
     } else {
-        panic!("Only linux and windows supported.");
+        panic_red!("Only linux and windows supported.");
     }
 
     // cpdir("./blink/Source/core/css", "./blink-css");
@@ -176,26 +216,26 @@ fn update_parsers() {
         std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
     }
 
-    copy_from_overlay("Source/third_party/skia/include/core/SkSize.h");
-    copy_from_overlay("Source/platform/graphics/Color.h");
-    copy_from_overlay("Source/core/css/parser/CSSParserImpl.cpp");
-    copy_from_overlay("Source/core/css/parser/CSSParserMode.cpp");
-    copy_from_overlay("Source/core/css/parser/CSSParserMode.h");
-    copy_from_overlay("Source/platform/geometry/FloatPoint.h");
-    copy_from_overlay("Source/core/layout/LayoutTheme.h");
-    copy_from_overlay("Source/core/layout/LayoutTheme.cpp");
+    // copy_from_overlay("Source/third_party/skia/include/core/SkSize.h");
+    // copy_from_overlay("Source/platform/graphics/Color.h");
+    // copy_from_overlay("Source/core/css/parser/CSSParserImpl.cpp");
+    // copy_from_overlay("Source/core/css/parser/CSSParserMode.cpp");
+    // copy_from_overlay("Source/core/css/parser/CSSParserMode.h");
+    // copy_from_overlay("Source/platform/geometry/FloatPoint.h");
+    // copy_from_overlay("Source/core/layout/LayoutTheme.h");
+    // copy_from_overlay("Source/core/layout/LayoutTheme.cpp");
 
     // exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/renderer/build/scripts/make_runtime_features.py", "./blink/renderer/platform/runtime_enabled_features.json5", "--output_dir", "./blink/renderer/platform/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_runtime_features.py", "./chromium/src/third_party/blink/renderer/platform/runtime_enabled_features.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/platform/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_css_value_keywords.py", "./blink/Source/core/css/CSSValueKeywords.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/renderer/build/scripts/make_settings.py", "./blink/renderer/core/frame/settings.json5", "--output_dir", "./blink/renderer/core/frame/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_settings.py", "./chromium/src/third_party/blink/renderer/core/frame/settings.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/core/frame/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_css_tokenizer_codepoints.py", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_media_features.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
-    exec_python_file(&["./blink/renderer/build/scripts/make_names.py", "./blink/renderer/core/css/media_type_names.json5", "--output_dir", "./blink/renderer/core/css/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
 
-    let mut dir = std::fs::read_dir(Path::new("./blink/renderer/core/css/parser")).unwrap();
+    let mut dir = std::fs::read_dir(Path::new("./chromium/src/third_party/blink/renderer/core/css/parser")).unwrap();
 
     let parser_files = gather_files_readdir(dir);
 
@@ -213,10 +253,12 @@ fn update_parsers() {
     //     println!("DEP: {}", dep);
     // }
 
+    let include_dirs = &["./chromium/src/"];
+
     let mut trans_deps = HashSet::new();
     let mut trans_sys_deps = HashSet::new();
     for parser_file in parser_files.iter() {
-        let file_deps = gather_trans_deps(&parser_file);
+        let file_deps = gather_trans_deps(&parser_file, include_dirs);
         for file_dep in file_deps.project {
             trans_deps.insert(file_dep);
         }
@@ -245,27 +287,28 @@ fn update_parsers() {
 
     println!("\n");
 
-    println!("Copying to ./blink/comp/");
+    println!("Copying to ./chromium/dst/");
 
-    std::fs::create_dir_all("./blink/comp/").unwrap();
+    std::fs::create_dir_all("./chromium/dst/").unwrap();
     for file in all_files {
+        println!("{file}");
         let rel_to_blink = file.path.to_string_lossy().replace("./blink/", "./blink/comp/");
         println!("{}", rel_to_blink);
         std::fs::create_dir_all(Path::new(rel_to_blink.as_str()).parent().unwrap()).unwrap();
         std::fs::copy(file.path, rel_to_blink).unwrap();
     }
 
-    dir = std::fs::read_dir(Path::new("./blink/comp/")).unwrap();
+    dir = std::fs::read_dir(Path::new("./chromium/dst/")).unwrap();
     let mut blink_css_build = cc::Build::new();
     blink_css_build.cpp(true);
     for entry in gather_files_readdir(dir) {
-        if entry.to_str().unwrap().contains("CSSTokenizerCodepoints") {
-            println!("uh no dont include this partial file!");
-            continue;
-        }
+        // if entry.to_str().unwrap().contains("CSSTokenizerCodepoints") {
+        //     println!("uh no dont include this partial file!");
+        //     continue;
+        // }
         blink_css_build.file(entry.to_str().unwrap());
     }
-    cpdir("./blink/unicode/", "./blink/comp/unicode/");
+    //cpdir("./blink/unicode/", "./blink/comp/unicode/");
     // println!(" HOST {}", std::env::var("HOST").unwrap());
     // println!("HHOST {}", std::env::var("HHOST").unwrap());
     println!("TARGET {}", std::env::var("TTARGET").unwrap().as_str());
@@ -275,8 +318,8 @@ fn update_parsers() {
     blink_css_build.opt_level(2);
     blink_css_build.out_dir("./blink_css_out/");
     // blink_css_build.include("./blink/comp/Source/");
-    blink_css_build.include("./blink/comp/");
-    blink_css_build.include("./blink/comp/renderer/");
+    // blink_css_build.include("./blink/comp/");
+    // blink_css_build.include("./blink/comp/renderer/");
     // blink_css_build.include("/usr/include/c++/14/");
     blink_css_build.std("c++20");
     // blink_css_build.flag("-include");
@@ -326,16 +369,16 @@ struct DepsReprs {
     pub project: Vec<String>,
 }
 
-fn gather_trans_deps(file: &Path) -> Deps {
+fn gather_trans_deps(file: &Path, include_dirs: &[&str]) -> Deps {
     let mut res = Deps {
         system: Vec::new(),
         project: Vec::new(),
     };
-    gather_deps_rec(file, &mut Vec::new(),&mut res, 0);
+    gather_deps_rec(include_dirs, file, &mut Vec::new(),&mut res, 0);
     res
 }
 
-fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mut Deps, lvl: usize) {
+fn gather_deps_rec(include_dirs: &[&str], file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mut Deps, lvl: usize) {
     println!("GDR {}{}", "|   ".repeat(lvl), file.to_string_lossy());
     if handled_paths.contains(&file.to_string_lossy().to_string()) {
         return;
@@ -347,7 +390,7 @@ fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mu
         let cpp_file_str = file.to_string_lossy().replace(".h", ".cc");
         let cpp_file = Path::new(&cpp_file_str);
         if cpp_file.exists() {
-            gather_deps_rec(cpp_file, handled_paths, trans_deps, lvl);
+            gather_deps_rec(include_dirs, cpp_file, handled_paths, trans_deps, lvl);
         }
     }
 
@@ -356,19 +399,21 @@ fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mu
     // recurse into header includes
     let direct_deps = gather_deps_repr(file);
     for dep in direct_deps.project.into_iter() {
-        let source_rel_path = Path::new("./blink/Source/").join(&dep);
-        let blink_rel_path = Path::new("./blink/").join(&dep);
+        let include_rel_paths = include_dirs.iter().map(|dir| Path::new(dir).join(&dep));
         let file_rel_path = file.parent().unwrap().join(&dep);
 
         let mut found_path = None;
         if file_rel_path.exists() {
             found_path = Some(file_rel_path);
-        } else if blink_rel_path.exists(){
-            found_path = Some(blink_rel_path);
-        } else if source_rel_path.exists() {
-            found_path = Some(source_rel_path);
+        } else {
+            for include_rel_path in include_rel_paths {
+                if include_rel_path.exists() {
+                    found_path = Some(include_rel_path);
+                    continue;
+                }
+            }
         }
-        let dep_path = found_path.expect(&format!("Could not find include {}", dep));
+        let dep_path = found_path.expect_red(&format!("Could not find include '{}' defined in file {:?}", dep, file));
 
         if !trans_deps.project.iter().any(|d| d.repr == dep) {
             trans_deps.project.push(Dep {
@@ -377,7 +422,7 @@ fn gather_deps_rec(file: &Path, handled_paths: &mut Vec<String>, trans_deps: &mu
             });
         }
         if !handled_paths.contains(&dep) {
-            gather_deps_rec(&dep_path, handled_paths, trans_deps, lvl+1);
+            gather_deps_rec(include_dirs, &dep_path, handled_paths, trans_deps, lvl+1);
         } 
     }
 
@@ -397,7 +442,7 @@ fn gather_deps_repr(file: &Path) -> DepsReprs {
     let mut res_proj = Vec::new();
     let contents = std::fs::read_to_string(file).unwrap();
 
-    let proj_deps_rgx = Regex::new(r#"#include "(?<dep>[^"]*)"#).unwrap();
+    let proj_deps_rgx = Regex::new(r#"(?m)^#include "(?<dep>[^"]*)"#).unwrap();
 
     let deps = proj_deps_rgx.captures_iter(contents.as_str());
 
@@ -412,7 +457,7 @@ fn gather_deps_repr(file: &Path) -> DepsReprs {
     }
 
     let mut res_sys = Vec::new();
-    let sys_deps_rgx = Regex::new(r#"#include <(?<dep>[^>]*)>"#).unwrap();
+    let sys_deps_rgx = Regex::new(r#"(?m)^#include <(?<dep>[^>]*)>"#).unwrap();
 
     let sys_deps = sys_deps_rgx.captures_iter(contents.as_str());
     for sys_dep in sys_deps.into_iter() {
@@ -445,7 +490,7 @@ fn gather_files_readdir(in_dir: ReadDir) -> Vec<PathBuf> {
 }
 
 fn gather_files(in_dir: &DirEntry, paths: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(in_dir.path()).expect(&format!("{} was not a dir", in_dir.file_name().to_str().unwrap())) {
+    for entry in std::fs::read_dir(in_dir.path()).expect_red(&format!("{} was not a dir", in_dir.file_name().to_str().unwrap())) {
         let e = entry.unwrap();
         if e.file_type().unwrap().is_dir() {
             gather_files(&e, paths);
