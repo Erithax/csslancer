@@ -125,7 +125,7 @@ fn exec_python_file(args: &[&str]) {
     }
 }
 
-const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
+// const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     // ("./blink/Source/build/scripts/in_generator.py", r#"print "USAGE: %s INPUT_FILES" % script_name"#, r#"print("USAGE: %s INPUT_FILES" % script_name)"#),
     // ("./blink/Source/build/scripts/in_file.py", "print message", r#"print(message)"#),
     // ("./blink/Source/build/scripts/in_generator.py", "basestring", "str"),
@@ -159,6 +159,10 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     // ("./blink/Source/build/scripts/hasher.py", "0x9E3779B9L", "0x9E3779B9"),
     // ("./blink/Source/build/scripts/hasher.py", "long", "int"),
     // ("./blink/Source/build/scripts/templates/MakeNames.h.tmpl", "{% for entry in entries|sort %}", "{% for entry in entries|sort(attribute='name') %}"), // jinja needs key to sort dicts on
+// ];
+
+const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
+    ("./chromium/src/third_party/blink/renderer/platform/wtf/type_traits.h", "#include \"v8/include/cppgc/type-traits.h\"", ""),
 ];
 
 fn update_parsers() {
@@ -171,7 +175,10 @@ fn update_parsers() {
     if false {
         let _ = rmdir("./chromium");
         //sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", "third_party/blink");
-        sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", &["/third_party/blink", "/base", "/build"], "./chromium/src");
+        sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", &["/third_party/blink", "/base", "/build", "/third_party/perfetto", "/third_party/rapidhash", "/third_party/abseil-cpp"], "./chromium/src");
+        cmd_succ("git", &["submodule", "update", "./third_party/perfetto/"], "./chromium/src/");
+        cmd_succ("git", &["submodule", "update", "./third_party/googletest/src/"], "./chromium/src/");
+        cmd_succ("git", &["submodule", "update", "./third_party/re2"], "./chromium/src/");
     }
 
     // cpdir("./chromium/src/third_party/blink/", "./chromium/dst/third_party/blink/");
@@ -247,6 +254,14 @@ fn update_parsers() {
         "--gen-dir", "./chromium/src/base",
         "--definitions", fuzzing_build_flags_path]);
 
+    let tracing_build_flags_path = "./chromium/src/build/tracing_buildflags_flags";
+    std::fs::File::create(tracing_build_flags_path).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "tracing_buildflags.h",
+        "--gen-dir", "./chromium/src/base",
+        "--definitions", tracing_build_flags_path]);
+
     // see ./chromium/src/base/allocator/partition_allocator/src/partition_alloc/buildflag_header.gni
     // ./chromium/src/base/allocator/partition_allocator/src/partition_alloc/BUILD.gn:135
     // TODO: actually write GN build flags to the --flags file
@@ -257,6 +272,52 @@ fn update_parsers() {
         "--output", "buildflags.h",
         "--gen-dir", "./chromium/src/base/allocator/partition_allocator/src/partition_alloc",
         "--definitions", part_alloc_build_flags_path]);
+
+    // see ./chromium/src/base/synchronization
+    // ./chromium/src/base/??/BUILD.gn:135
+    // TODO: actually write GN build flags to the --flags file
+    let synchronization_build_flags_path = "./chromium/src/base/synchronization/buildflags_flags";
+    std::fs::File::create(synchronization_build_flags_path).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "synchronization_buildflags.h",
+        "--gen-dir", "./chromium/src/base/synchronization",
+        "--definitions", synchronization_build_flags_path]);
+
+    // see
+    // ./chromium/src/??/BUILD.gn:135
+    // TODO: actually write GN build flags to the --flags file
+    let chromeos_buildflags_gen_flags = "./chromium/src/build/chromeos_buildflags_flags";
+    std::fs::File::create(chromeos_buildflags_gen_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "chromeos_buildflags.h",
+        "--gen-dir", "./chromium/src/build",
+        "--definitions", chromeos_buildflags_gen_flags]);
+
+    // see 
+    // ./chromium/src/??/BUILD.gn:135
+    // TODO: actually write GN build flags to the --flags file
+    let feature_list_buildflags_flags = "./chromium/src/base/feature_list_buildflags_flags";
+    std::fs::File::create(feature_list_buildflags_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "feature_list_buildflags.h",
+        "--gen-dir", "./chromium/src/base",
+        "--definitions", feature_list_buildflags_flags]);
+
+    // see 
+    // ./chromium/src/??/BUILD.gn:135
+    // TODO: actually write GN build flags to the --flags file
+    let heap_buildflags_flags = "./chromium/src/third_party/blink/renderer/platform/heap/heap_buildflags_flags";
+    std::fs::File::create(heap_buildflags_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "heap_buildflags.h",
+        "--gen-dir", "./chromium/src/third_party/blink/renderer/platform/heap",
+        "--definitions", heap_buildflags_flags]);
+
+
 
     
     // exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
@@ -293,7 +354,13 @@ fn update_parsers() {
     //     println!("DEP: {}", dep);
     // }
 
-    let include_dirs = &["./chromium/src/", "./chromium/src/base/allocator/partition_allocator/src/"];
+    let include_dirs = &[
+        "./chromium/src/", 
+        "./chromium/src/base/allocator/partition_allocator/src/",
+        "./chromium/src/third_party/googletest/src/googletest/include/",
+        "./chromium/src/third_party/abseil-cpp/", // referenced in ./chromium/src/third_party/googletest/src/googletest/include/gtest/internal/gtest-port.h
+        "./chromium/src/third_party/re2/src/", // referenced in ./chromium/src/third_party/googletest/src/googletest/include/gtest/internal/gtest-port.h
+    ];
 
     let mut trans_deps = HashSet::new();
     let mut trans_sys_deps = HashSet::new();
