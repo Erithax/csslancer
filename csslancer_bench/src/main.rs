@@ -69,10 +69,16 @@ fn cpdir(from_dir: &str, to_dir: &str) {
         .expect_red(&format!("could not copy dir {from_dir} to {to_dir}"));
 }
 
-fn copy_from_overlay(rel_path: &str) {
-    copy(&format!("./blink-overlay/{rel_path}"), &format!("./blink/{rel_path}"));
-}
+// fn copy_from_overlay(rel_path: &str) {
+//     copy(&format!("./blink-overlay/{rel_path}"), &format!("./blink/{rel_path}"));
+// }
 
+fn copy_from_overlay(rel_path: &str) {
+    create_dir_all(Path::new(&format!("./chromium/src/{rel_path}")).parent().unwrap())
+        .expect_red(&format!("Could not create directory for copy from overlay to src: {rel_path}"));
+    copy(&format!("./chromium/overlay/{rel_path}"), &format!("./chromium/src/{rel_path}"))
+        .expect_red(&format!("Could not copy `{rel_path}` from overlay to src"));
+}
 
 fn clone_repo(url: &str) {
     println!("Cloning repo {url}");
@@ -163,6 +169,8 @@ fn exec_python_file(args: &[&str]) {
 
 const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./chromium/src/third_party/blink/renderer/platform/wtf/type_traits.h", "#include \"v8/include/cppgc/type-traits.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/platform/heap/collection_support/heap_vector.h", "public GarbageCollected<HeapVector<T, inlineCapacity>>,\n", ""),
+    ("./chromium/src/third_party/blink/renderer/platform/heap/collection_support/heap_vector.h", "#include \"third_party/blink/renderer/platform/heap/garbage_collected.h\"", ""),
 ];
 
 fn update_parsers() {
@@ -231,6 +239,22 @@ fn update_parsers() {
     // copy_from_overlay("Source/platform/geometry/FloatPoint.h");
     // copy_from_overlay("Source/core/layout/LayoutTheme.h");
     // copy_from_overlay("Source/core/layout/LayoutTheme.cpp");
+
+
+    // copy_from_overlay("v8/include/cppgc/custom-space.h");
+    copy_from_overlay("v8/include/v8config.h");
+    copy_from_overlay("v8/include/v8-source-location.h");
+
+    copy_from_overlay("v8/tools/gen-v8-gn.py");
+
+
+    // see v8/BUILD.gn:3313
+    exec_python_file(&["./chromium/src/v8/tools/gen-v8-gn.py",
+        "-o", "./chromium/src/v8/include/v8-gn.h",
+    ]);
+
+
+
 
     // see /build/buildflag_header.gni
 
@@ -360,6 +384,7 @@ fn update_parsers() {
         "./chromium/src/third_party/googletest/src/googletest/include/",
         "./chromium/src/third_party/abseil-cpp/", // referenced in ./chromium/src/third_party/googletest/src/googletest/include/gtest/internal/gtest-port.h
         "./chromium/src/third_party/re2/src/", // referenced in ./chromium/src/third_party/googletest/src/googletest/include/gtest/internal/gtest-port.h
+        "./chromium/src/v8/include/", // referenced in ./chromium/src/v8/include/cppgc
     ];
 
     let mut trans_deps = HashSet::new();
