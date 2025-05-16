@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, io::Write, path::{Path, PathBuf}, str};
+use std::{borrow::Cow, collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, io::Write, path::{Path, PathBuf}, str};
 
 use regex::Regex;
 use std::io;
@@ -173,6 +173,7 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./chromium/src/third_party/blink/renderer/platform/heap/collection_support/heap_vector.h", "#include \"third_party/blink/renderer/platform/heap/garbage_collected.h\"", ""),
 ];
 
+
 fn update_parsers() {
     println!("Updating parsers");
 
@@ -183,11 +184,15 @@ fn update_parsers() {
     if false {
         let _ = rmdir("./chromium");
         //sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", "third_party/blink");
-        sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", &["/third_party/blink", "/base", "/build", "/third_party/perfetto", "/third_party/rapidhash", "/third_party/abseil-cpp"], "./chromium/src");
+        sparse_clone("./chromium", "https://chromium.googlesource.com/chromium/src", &["/third_party/blink", "/base", "/build", "/third_party/perfetto", "/third_party/rapidhash", "/third_party/abseil-cpp"     ], "./chromium/src");
         cmd_succ("git", &["submodule", "update", "./third_party/perfetto/"], "./chromium/src/");
         cmd_succ("git", &["submodule", "update", "./third_party/googletest/src/"], "./chromium/src/");
         cmd_succ("git", &["submodule", "update", "./third_party/re2"], "./chromium/src/");
     }
+
+    // let rx_patches: Vec<(&'static str, Regex, &'static str)> = vec![
+    //     ("./chromium/src/third_party/blink/renderer/core/css/media_values.h", Regex::new(r#"#include \"[a-zA-Z0-9\./]*(?!/mojom/)(/mojom/)[a-zA-Z0-9\./]*\""#).unwrap(), ""),
+    // ];
 
     // cpdir("./chromium/src/third_party/blink/", "./chromium/dst/third_party/blink/");
     
@@ -226,10 +231,18 @@ fn update_parsers() {
     println!("Patching");
 
     for patch in PATCHES {
-        println!("{}", patch.0);
+        println!("Patch {}", patch.0);
         let prev = std::fs::read_to_string(Path::new(patch.0)).unwrap();
         std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
     }
+    // for (path, rx, repl) in rx_patches {
+    //     println!("Patch {}", path);
+    //     let prev = std::fs::read_to_string(Path::new(path)).unwrap();
+    //     std::fs::write(Path::new(path), rx.replace_all(&prev, repl).to_string()).unwrap();
+    // }
+    let p = Path::new("./chromium/src/third_party/blink/renderer/core/css/media_values.h");
+    let prev = std::fs::read_to_string(p).unwrap();
+    std::fs::write(p, prev.lines().filter(|line| !(line.starts_with("#include") && line.contains("/mojom/"))).map(|line| line.to_owned() + "\n").collect::<String>()).unwrap();
 
     // copy_from_overlay("Source/third_party/skia/include/core/SkSize.h");
     // copy_from_overlay("Source/platform/graphics/Color.h");
@@ -358,6 +371,9 @@ fn update_parsers() {
     // exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
     exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
         "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", 
+        "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/core/css/css_properties.py", 
+        "./chromium/src/third_party/blink/renderer/core/css/css_properties.json5", 
         "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
 
     let mut dir = std::fs::read_dir(Path::new("./chromium/src/third_party/blink/renderer/core/css/parser")).unwrap();
