@@ -95,6 +95,7 @@ fn cmd_succ(exe: &str, args: &[&str], wrk_dir: &str) {
         .args(args)
         .current_dir(wrk_dir)
         .output()
+        .inspect_err(|err| println!("{err}"))
         .expect_red(&format!("failed to exec cmd {txt}"))
         .status.success().then(|| ())
         .expect_red(&format!("error executing cmd {txt}"));
@@ -123,6 +124,20 @@ fn exec_python_file(args: &[&str]) {
         .args(args)
         .output()
         .expect_red(&format!("failed to execute python file `{}`", args[0]));
+    if !out.status.success() {
+        panic_red!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
+            args[0],
+            std::string::String::from_utf8_lossy(&out.stdout), 
+            std::string::String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+fn exec_python_module(args: &[&str], in_dir: &str) {
+    let out = std::process::Command::new("python3")
+        .current_dir(in_dir)
+        .args(args)
+        .output()
+        .expect_red(&format!("failed to execute python file `{}`", args[1]));
     if !out.status.success() {
         panic_red!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
             args[0],
@@ -171,7 +186,33 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./chromium/src/third_party/blink/renderer/platform/wtf/type_traits.h", "#include \"v8/include/cppgc/type-traits.h\"", ""),
     ("./chromium/src/third_party/blink/renderer/platform/heap/collection_support/heap_vector.h", "public GarbageCollected<HeapVector<T, inlineCapacity>>,\n", ""),
     ("./chromium/src/third_party/blink/renderer/platform/heap/collection_support/heap_vector.h", "#include \"third_party/blink/renderer/platform/heap/garbage_collected.h\"", ""),
-];
+    ("./chromium/src/third_party/blink/renderer/core/css/css_property_names.h", "#include \"third_party/blink/public/mojom/use_counter/metrics/css_property_id.mojom-blink-forward.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/style/position_area.h", "#include \"third_party/blink/renderer/core/layout/geometry/box_sides.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/style/position_area.h", "#include \"third_party/blink/renderer/core/layout/geometry/box_strut.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/style/position_area.h", "#include \"third_party/blink/renderer/core/layout/geometry/layout_unit.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/anchor_evaluator.h", "#include \"third_party/blink/renderer/platform/geometry/physical_offset.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/media_values.h", "#include \"ui/base/pointer/pointer_device.h\"", ""),
+
+    //
+    ("./chromium/src/third_party/blink/renderer/core/css/css_identifier_value.h", "#include \"third_party/blink/renderer/core/css/css_value_id_mappings.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings.h", "#include \"third_party/blink/renderer/core/animation/effect_model.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"cc/input/scroll_snap_data.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"third_party/blink/public/mojom/frame/color_scheme.mojom-blink.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"third_party/blink/public/mojom/scroll/scroll_enums.mojom-blink.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"third_party/blink/renderer/core/animation/effect_model.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"third_party/blink/renderer/core/layout/layout_theme.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_value_id_mappings_generated.h", "#include \"third_party/blink/renderer/core/style/basic_shapes.h\"", ""),
+
+    ("./chromium/src/third_party/blink/renderer/core/css/style_color.h", "#include \"third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/platform/graphics/color.h", "#include \"third_party/skia/include/core/SkColor.h\"", ""),
+
+    ("./chromium/src/third_party/blink/renderer/platform/graphics/color.h", "#include \"third_party/skia/include/core/SkColor.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/at_rule_counter_style_descriptor_parser.cc", "#include \"third_party/blink/renderer/core/dom/document.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_font_face_src_value.h", "#include \"third_party/blink/renderer/core/loader/resource/font_resource.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_font_face_src_value.h", "#include \"third_party/blink/renderer/platform/bindings/dom_wrapper_world.h\"", ""),
+
+
+    ];
 
 
 fn update_parsers() {
@@ -354,6 +395,16 @@ fn update_parsers() {
         "--gen-dir", "./chromium/src/third_party/blink/renderer/platform/heap",
         "--definitions", heap_buildflags_flags]);
 
+    // see 
+    // ./chromium/src/base/BUILD.gn:2729
+    // TODO: actually write GN build flags to the --flags file
+    let protmem_buildflags_flags = "./chromium/src/base/protected_memory_buildflags_flags";
+    std::fs::File::create(protmem_buildflags_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "protected_memory_buildflags.h",
+        "--gen-dir", "./chromium/src/base/memory/",
+        "--definitions", protmem_buildflags_flags]);
 
 
     
@@ -372,9 +423,91 @@ fn update_parsers() {
     exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
         "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", 
         "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
-    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/core/css/css_properties.py", 
-        "./chromium/src/third_party/blink/renderer/core/css/css_properties.json5", 
-        "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+    // exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/core/css/make_css_property_names.py", 
+    //     "./chromium/src/third_party/blink/renderer/core/css/css_properties.json5", 
+    //     "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+
+    // exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
+    //     "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", 
+    //     "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+
+
+    // see csslancer_bench/chromium/src/third_party/blink/renderer/core/BUILD.gn
+    exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
+        "./chromium/src/third_party/blink/renderer/core/html/keywords.json5", 
+        "--output_dir", "./chromium/src/third_party/blink/renderer/core/"]);
+
+    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:235
+    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
+    exec_python_module(&[
+        "-m", 
+        "core.css.make_css_property_names",
+        "./../../core/css/css_properties.json5",
+        "./../../core/css/computed_style_field_aliases.json5",
+        "./../../platform/runtime_enabled_features.json5",
+        "--output_dir", "./../../core/css/",
+        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
+
+    
+    // see /src/third_party/blink/renderer/core/BUILD.gn:738
+    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
+    exec_python_module(&[
+        "-m", 
+        "core.style.make_computed_style_base",
+        "./../../core/css/css_properties.json5",
+        "./../../core/css/computed_style_field_aliases.json5",
+        "./../../platform/runtime_enabled_features.json5",
+        "./../../core/style/computed_style_extra_fields.json5",
+        "./../../core/css/css_value_keywords.json5",
+        "./../../core/css/css_group_config.json5",
+        "--output_dir", "./../../core/style/",
+        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn
+    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
+    exec_python_module(&[
+        "-m", 
+        "core.css.make_css_value_id_mappings",
+        "./../../core/css/css_properties.json5",
+        "./../../core/css/computed_style_field_aliases.json5",
+        "./../../platform/runtime_enabled_features.json5",
+        "./../../core/css/css_value_keywords.json5",
+        "--output_dir", "./../../core/css/",
+        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
+    
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:883
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/build/scripts/scripts.gni:199
+
+    // code_generator("make_core_generated_css_value_keywords") {
+    //     script = "../build/scripts/core/css/make_css_value_keywords.py"
+    //     json_inputs = [ "css/css_value_keywords.json5" ]
+    //     other_inputs = [ "../build/scripts/gperf.py" ]
+    //     templates = [
+    //       "../build/scripts/core/css/templates/css_value_keywords.cc.tmpl",
+    //       "../build/scripts/core/css/templates/css_value_keywords.h.tmpl",
+    //     ]
+    //     outputs = [
+    //       "$blink_core_output_dir/css_value_keywords.cc",
+    //       "$blink_core_output_dir/css_value_keywords.h",
+    //     ]
+    //     other_args = [
+    //       "--gperf",
+    //       gperf_exe,
+    //     ]
+    //   }
+    exec_python_module(&[
+        "-m",
+        "core.css.make_css_value_keywords",
+        "./../../core/css/css_value_keywords.json5",
+        "--output_dir", "./../../core/",
+    ], "./chromium/src/third_party/blink/renderer/build/scripts/");
+
+
+    for patch in PATCHES {
+        println!("Patch {}", patch.0);
+        let prev = std::fs::read_to_string(Path::new(patch.0)).unwrap();
+        std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
+    }
 
     let mut dir = std::fs::read_dir(Path::new("./chromium/src/third_party/blink/renderer/core/css/parser")).unwrap();
 
