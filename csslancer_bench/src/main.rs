@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashSet, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, io::Write, path::{Path, PathBuf}, str};
+use std::{borrow::Cow, collections::HashSet, ffi::OsStr, fmt::Display, fs::{copy, create_dir_all, remove_dir_all, rename, DirEntry, ReadDir}, io::{read_to_string, Write}, path::{Path, PathBuf}, str};
 
 use regex::Regex;
 use std::io;
@@ -132,18 +132,39 @@ fn exec_python_file(args: &[&str]) {
     }
 }
 
-fn exec_python_module(args: &[&str], in_dir: &str) {
+fn exec_python_module<'a, T, U>(args: T, in_dir: &str) 
+    where T : IntoIterator<Item = U>, T : Clone,
+        U : AsRef<str>, U : AsRef<OsStr>, U : Display
+{
     let out = std::process::Command::new("python3")
         .current_dir(in_dir)
-        .args(args)
+        .args(args.clone())
         .output()
-        .expect_red(&format!("failed to execute python file `{}`", args[1]));
+        .expect_red(&format!("failed to execute python file `{}`", args.clone().into_iter().nth(1).unwrap()));
     if !out.status.success() {
         panic_red!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
-            args[0],
+            args.into_iter().nth(0).unwrap(),
             std::string::String::from_utf8_lossy(&out.stdout), 
             std::string::String::from_utf8_lossy(&out.stderr));
     }
+}
+
+// see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
+// see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn scripts deriving from CSSProperties
+fn css_properties(module: &str, other_inputs: &[&str], out_dir: &str) {
+    exec_python_module(
+        [
+            &[ "-m", 
+                module, 
+                "./../../core/css/css_properties.json5",
+                "./../../core/css/computed_style_field_aliases.json5",
+                "./../../platform/runtime_enabled_features.json5"
+            ],
+            other_inputs,
+            &[ 
+                "--output_dir", out_dir,
+            ],
+        ].into_iter().flatten().collect::<Vec<&&str>>(), "./chromium/src/third_party/blink/renderer/build/scripts/");
 }
 
 // const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
@@ -213,6 +234,7 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
 
 
     ];
+
 
 
 fn update_parsers() {
@@ -437,43 +459,6 @@ fn update_parsers() {
         "./chromium/src/third_party/blink/renderer/core/html/keywords.json5", 
         "--output_dir", "./chromium/src/third_party/blink/renderer/core/"]);
 
-    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:235
-    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
-    exec_python_module(&[
-        "-m", 
-        "core.css.make_css_property_names",
-        "./../../core/css/css_properties.json5",
-        "./../../core/css/computed_style_field_aliases.json5",
-        "./../../platform/runtime_enabled_features.json5",
-        "--output_dir", "./../../core/css/",
-        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
-
-    
-    // see /src/third_party/blink/renderer/core/BUILD.gn:738
-    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
-    exec_python_module(&[
-        "-m", 
-        "core.style.make_computed_style_base",
-        "./../../core/css/css_properties.json5",
-        "./../../core/css/computed_style_field_aliases.json5",
-        "./../../platform/runtime_enabled_features.json5",
-        "./../../core/style/computed_style_extra_fields.json5",
-        "./../../core/css/css_value_keywords.json5",
-        "./../../core/css/css_group_config.json5",
-        "--output_dir", "./../../core/style/",
-        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
-
-    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn
-    // see /src/third_party/blink/renderer/build/scripts/scripts.gni:230
-    exec_python_module(&[
-        "-m", 
-        "core.css.make_css_value_id_mappings",
-        "./../../core/css/css_properties.json5",
-        "./../../core/css/computed_style_field_aliases.json5",
-        "./../../platform/runtime_enabled_features.json5",
-        "./../../core/css/css_value_keywords.json5",
-        "--output_dir", "./../../core/css/",
-        ], "./chromium/src/third_party/blink/renderer/build/scripts/");
     
     // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:883
     // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/build/scripts/scripts.gni:199
@@ -502,6 +487,43 @@ fn update_parsers() {
         "--output_dir", "./../../core/",
     ], "./chromium/src/third_party/blink/renderer/build/scripts/");
 
+    // csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn
+    // TODO: assert that this file contains 10 occurences of 'css_properties('
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:731
+    css_properties("core.style.make_computed_style_initial_values", &["./../../core/style/computed_style_extra_fields.json5"], "./../../core/style/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:738
+    css_properties("core.style.make_computed_style_base",
+     &[
+        "./../../core/style/computed_style_extra_fields.json5",
+        "./../../core/css/css_value_keywords.json5",
+        "./../../core/css/css_group_config.json5",
+        ], "./../../core/style/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:772
+    css_properties("core.css.make_css_value_id_mappings", &["./../../core/css/css_value_keywords.json5"], "./../../core/css/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:783
+    css_properties("core.css.properties.make_css_property_instances", &[], "./../../core/css/properties/");
+    
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:795
+    css_properties("core.css.properties.make_css_property_subclasses", &["./../../core/css/properties/css_property_methods.json5"], "./../../core/css/properties/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:811
+    css_properties("core.css.make_css_property_names", &[], "./../../core/css/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:851
+    css_properties("core.css.make_style_shorthands", &[], "./../../core/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:863
+    css_properties("core.css.make_cssom_types", &[], "./../../core/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:875
+    css_properties("core.css.properties.make_property_bitsets", &[], "./../../core/css/properties/");
+
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:1735
+    css_properties("core.css.parser.make_proto", &["./../../core/css/css_value_keywords.json5"], "./../../core/css/parser/");
 
     for patch in PATCHES {
         println!("Patch {}", patch.0);
