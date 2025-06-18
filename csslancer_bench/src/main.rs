@@ -141,6 +141,7 @@ fn exec_python_module<'a, T, U>(args: T, in_dir: &str)
         .args(args.clone())
         .output()
         .expect_red(&format!("failed to execute python file `{}`", args.clone().into_iter().nth(1).unwrap()));
+
     if !out.status.success() {
         panic_red!("error executing file {}:\nSTDOUT:{}\nSTDERR:{}", 
             args.into_iter().nth(0).unwrap(),
@@ -232,7 +233,22 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./chromium/src/third_party/blink/renderer/core/css/css_font_face_src_value.h", "#include \"third_party/blink/renderer/core/loader/resource/font_resource.h\"", ""),
     ("./chromium/src/third_party/blink/renderer/core/css/css_font_face_src_value.h", "#include \"third_party/blink/renderer/platform/bindings/dom_wrapper_world.h\"", ""),
 
+    ("./chromium/src/third_party/blink/renderer/core/css/css_style_declaration.h", "#include \"third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_style_declaration.h", "#include \"third_party/blink/renderer/platform/bindings/script_wrappable.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/css_style_declaration.h", "#include \"third_party/blink/renderer/platform/bindings/v8_binding.h\"", ""),
 
+    ("./chromium/src/third_party/blink/renderer/core/css/media_list.h", "#include \"third_party/blink/renderer/platform/bindings/script_wrappable.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/at_rule_descriptor_parser_test.cc", "#include \"third_party/blink/renderer/core/dom/document.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/at_rule_descriptor_parser_test.cc", "#include \"third_party/blink/renderer/core/testing/page_test_base.h\"", ""),
+
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/container_query_parser.cc", "#include \"third_party/blink/renderer/core/css/resolver/style_builder_converter.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/container_query_parser.cc", "#include \"third_party/blink/renderer/core/frame/web_feature.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/container_query_parser_test.cc", "#include \"third_party/blink/renderer/core/testing/page_test_base.h\"", ""),
+    
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/css_at_rule_id.cc", "#include \"third_party/blink/renderer/core/frame/web_feature.h\"", ""),
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/css_at_rule_id.cc", "#include \"third_party/blink/renderer/platform/instrumentation/use_counter.h\"", ""),
+
+    ("./chromium/src/third_party/blink/renderer/core/css/parser/css_if_parser_test.cc", "#include \"third_party/blink/renderer/core/testing/page_test_base.h\"", ""),
     ];
 
 
@@ -429,6 +445,16 @@ fn update_parsers() {
         "--definitions", protmem_buildflags_flags]);
 
 
+    // see 
+    // ./chromium/src/??/BUILD.gn:2729
+    // TODO: actually write GN build flags to the --flags file
+    let protmem_buildflags_flags = "./chromium/src/base/protected_memory_buildflags_flags";
+    std::fs::File::create(protmem_buildflags_flags).unwrap()
+        .write("--flags".as_bytes()).unwrap();
+    exec_python_file(&["./chromium/src/build/write_buildflag_header.py",
+        "--output", "protected_memory_buildflags.h",
+        "--gen-dir", "./chromium/src/base/memory/",
+        "--definitions", protmem_buildflags_flags]);
     
     // exec_python_file(&["./blink/Source/build/scripts/make_css_property_names.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_style_shorthands.py", "./blink/Source/core/css/CSSProperties.in", "--output_dir", "./blink/Source/core/"]);
@@ -441,10 +467,22 @@ fn update_parsers() {
         "--output_dir", "./chromium/src/third_party/blink/renderer/core/frame/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_css_tokenizer_codepoints.py", "--output_dir", "./blink/Source/core/"]);
     // exec_python_file(&["./blink/Source/build/scripts/make_media_features.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
-    // exec_python_file(&["./blink/Source/build/scripts/make_media_feature_names.py", "./blink/Source/core/css/MediaFeatureNames.in", "--output_dir", "./blink/Source/core/"]);
+    
+    // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:993
+    // exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/core/css/make_media_feature_names.py", 
+    //     "./chromium/src/third_party/blink/renderer/core/css/media_feature_names.json5", 
+    //     "--output_dir", "./blink/Source/core/css/"]);
+    exec_python_module(&[
+        "-m",
+        "core.css.make_media_feature_names",
+        "./../../core/css/media_feature_names.json5",
+        "--output_dir", "./../../core/css/",
+    ], "./chromium/src/third_party/blink/renderer/build/scripts/");
+
+    // see csslancer_bench/chromium/src/third_party/blink/renderer/core/BUILD.gn:1008
     exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/make_names.py", 
         "./chromium/src/third_party/blink/renderer/core/css/media_type_names.json5", 
-        "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
+        "--output_dir", "./chromium/src/third_party/blink/renderer/core/"]);
     // exec_python_file(&["./chromium/src/third_party/blink/renderer/build/scripts/core/css/make_css_property_names.py", 
     //     "./chromium/src/third_party/blink/renderer/core/css/css_properties.json5", 
     //     "--output_dir", "./chromium/src/third_party/blink/renderer/core/css/"]);
@@ -524,6 +562,20 @@ fn update_parsers() {
 
     // see csslancer_bench/chromium/OG/src/third_party/blink/renderer/core/BUILD.gn:1735
     css_properties("core.css.parser.make_proto", &["./../../core/css/css_value_keywords.json5"], "./../../core/css/parser/");
+
+    // TODO: determine why these don't get copied over/deleted in previous steps
+    // I think this is because of the cleanup in /chromium/src/third_party/blink/renderer/build/scripts/core/css/properties/make_css_property_instances.py
+    let copy_from_og = |rel_path: &str| std::fs::copy(
+        format!("./chromium/OG/src/{}", rel_path),
+        format!("./chromium/src/{}", rel_path),
+    ).unwrap();
+    let copy_from_og_css = |rel_path: &str| copy_from_og(
+        &format!("third_party/blink/renderer/core/css/{}", rel_path)
+    );
+    copy_from_og_css("properties/css_property.h");
+    copy_from_og_css("properties/css_property.cc");
+    copy_from_og_css("properties/css_unresolved_property.h");
+    copy_from_og_css("properties/css_unresolved_property.cc");
 
     for patch in PATCHES {
         println!("Patch {}", patch.0);
