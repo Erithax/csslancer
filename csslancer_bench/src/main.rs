@@ -64,6 +64,27 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
     Ok(())
 }
 
+fn recurse_files(path: &Path) -> impl IntoIterator<Item = PathBuf> {
+    if !path.is_dir() {
+        panic_red!("Cannot recurse over `{:?}`", path);
+    }
+
+    let mut res = Vec::new();
+
+    for entry in std::fs::read_dir(path).expect_red("could read dir") {
+        let entry = entry.expect_red(&format!("could not get entry in dir"));
+        let path = entry.path();
+
+        if path.is_dir() {
+            res.extend(recurse_files(&path));
+        } else {
+            res.push(path);
+        }
+    }
+
+    res
+}
+
 fn cpdir(from_dir: &str, to_dir: &str) {
     copy_dir_all(from_dir, to_dir)
         .expect_red(&format!("could not copy dir {from_dir} to {to_dir}"));
@@ -251,6 +272,27 @@ const PATCHES: &'static [(&'static str, &'static str, &'static str)] = &[
     ("./chromium/src/third_party/blink/renderer/core/css/parser/css_if_parser_test.cc", "#include \"third_party/blink/renderer/core/testing/page_test_base.h\"", ""),
     ];
 
+const INCLUDES_TO_DELETE: &'static [&'static str] = &[
+    "third_party/blink/renderer/core/testing/page_test_base.h",
+    "third_party/blink/renderer/platform/bindings/script_wrappable.h",
+    "third_party/blink/renderer/core/layout/geometry/(layout_unit|box_sides|box_strut|physical_offset).h",
+    "third_party/blink/renderer/core/dom/document.h",
+    "third_party/skia/include/core/SkColor.h",
+    "third_party/blink/renderer/core/frame/web_feature.h",
+    "third_party/blink/renderer/platform/bindings/(v8_binding|script_wrappable).h",
+    "third_party/blink/renderer/platform/heap/garbage_collected.h",
+    "third_party/blink/public/mojom/use_counter/metrics/css_property_id.mojom-blink-forward.h",
+    "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h",
+    "third_party/blink/public/mojom/scroll/scroll_enums.mojom-blink.h",
+    "v8/include/cppgc/type-traits.h",
+    "third_party/blink/renderer/core/loader/resource/font_resource.h",
+    "third_party/blink/renderer/core/testing/page_test_base.h",
+    "third_party/blink/renderer/platform/instrumentation/use_counter.h",
+    "third_party/blink/renderer/core/css/resolver/style_builder_converter.h",
+    "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h",
+    "third_party/blink/renderer/core/animation/effect_model.h",
+    "ui/base/pointer/pointer_device.h",
+];
 
 
 fn update_parsers() {
@@ -314,6 +356,21 @@ fn update_parsers() {
         let prev = std::fs::read_to_string(Path::new(patch.0)).unwrap();
         std::fs::write(Path::new(patch.0), prev.replace(patch.1, patch.2)).unwrap();
     }
+
+    // for file in recurse_files(Path::new("./chromium/src/")) {
+        
+    //     let Ok(mut contents) = std::fs::read_to_string(&file) else {
+    //         continue;
+    //     };
+    //     for include in INCLUDES_TO_DELETE {
+    //         contents = Regex::new(&("#include \"".to_owned() + include + "\""))
+    //             .expect_red("include regex invalid")
+    //             .replace_all(&contents, "")
+    //             .to_string();
+    //     }
+    //     std::fs::write(file, contents).expect_red("failed to write file after removing includes");
+    // }
+
     // for (path, rx, repl) in rx_patches {
     //     println!("Patch {}", path);
     //     let prev = std::fs::read_to_string(Path::new(path)).unwrap();
@@ -795,7 +852,15 @@ fn gather_deps_rec(include_dirs: &[&str], file: &Path, handled_paths: &mut Vec<S
 
 fn gather_deps_repr(file: &Path) -> DepsReprs {
     let mut res_proj = Vec::new();
-    let contents = std::fs::read_to_string(file).unwrap();
+    let mut contents = std::fs::read_to_string(file).unwrap();
+
+    for include in INCLUDES_TO_DELETE {
+        contents = Regex::new(&("#include \"".to_owned() + include + "\""))
+            .expect_red("include regex invalid")
+            .replace_all(&contents, "")
+            .to_string();
+    }
+    std::fs::write(file, &contents).expect_red("failed to write file after removing includes");
 
     let proj_deps_rgx = Regex::new(r#"(?m)^#include "(?<dep>[^"]*)"#).unwrap();
 
